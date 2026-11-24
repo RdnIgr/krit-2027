@@ -73,7 +73,7 @@ const S = { houses: [], byId: {}, votes: [], sig: '', view: 'home', cat: 'near',
   queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false };
 
 function psrc(p, size) {
-  if (/^https?:/.test(p)) return p + (p.includes('?') ? '&' : '?') + 'im_w=' + (size === 't' ? 480 : size === 'm' ? 960 : 1280);
+  if (/^https?:/.test(p)) return p + (p.includes('?') ? '&' : '?') + 'im_w=' + (size === 't' ? 480 : size === 'm' ? 960 : 1200);
   return size === 't' ? p.replace(/\/([^/]+)$/, '/t$1') : p;
 }
 const img = (p, size, alt = '', extra = '') => p ? `<img src="${esc(psrc(p, size))}" alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" ${extra}>` : '';
