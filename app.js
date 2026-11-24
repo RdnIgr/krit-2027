@@ -221,6 +221,8 @@ function accents(h) {
   if (h.env.k === 'Мало зелени') a.push(['warn', 'mountains', 'Мало зелени вокруг']);
   if (am.pool === 'shared') a.push(['warn', 'users', 'Бассейн общий']);
   if (am.pool === 'no') a.push(['warn', 'warning', 'Нет бассейна']);
+  if (am.grill === 'no') a.push(['warn', 'fire', 'Нет гриля']);
+  else if (am.grill !== 'grill' && am.grill !== 'bbq') a.push(['warn', 'fire', 'Про гриль ничего не сказано']);
   if (/камни|скал/.test(h.beachType)) a.push(['warn', 'mountains', 'Пляж каменистый']);
   if (!h.near) a.push(['warn', 'car', w.drive ? `До моря на машине ${w.drive} мин` : 'К морю на машине']);
   if (shop > 1500 && shop < 1e9) a.push(['warn', 'shopping-cart', 'Магазин далеко']);
