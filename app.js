@@ -267,7 +267,7 @@ function galleryGroups(photos) {
   return Object.keys(PHOTO).filter(k => groups[k]).map(k => [k, groups[k]]);
 }
 function galleryGrid(photos, idxs) {
-  return `<div class="gg">${idxs.map((idx, j) => { const wide = j === 0 && idxs.length % 2 === 1; return `<button type="button" class="${wide ? 'wide' : ''}" data-act="gphoto" data-i="${idx}">${img(photos[idx], wide ? 'm' : 't', plabel(photos[idx]))}</button>`; }).join('')}</div>`;
+  return `<div class="gg">${idxs.map((idx, j) => { const wide = j === 0 && idxs.length % 2 === 1; return `<button type="button" class="${wide ? 'wide' : ''}" data-act="gphoto" data-i="${idx}">${img(photos[idx], wide ? 'f' : 't', plabel(photos[idx]))}</button>`; }).join('')}</div>`;
 }
 function gallerySection(h, photos) {
   return `<section class="sec gal" id="gallery"><h2>Все фото <span style="color:var(--muted);font-weight:600">${photos.length}</span></h2>
