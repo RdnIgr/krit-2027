@@ -9,7 +9,6 @@ const $viewer = document.getElementById('viewer');
 const $track = document.getElementById('viewer-track');
 const $cap = document.getElementById('viewer-cap');
 const $toast = document.getElementById('toast');
-const $stamp = document.getElementById('stamp');
 
 /* ---------- helpers ---------- */
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 256 256" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -213,10 +212,11 @@ function renderHome() {
     <header class="home-hd"><p>Крит, 12-25 июня 2027, ${C.people} человек</p><h1>Выбери категорию</h1></header>
     <div class="cats">${catCard('near')}${catCard('far')}</div>
     <div class="how">
-      <div><span class="no">${ic('x-bold', 'l')}</span>Влево:<br>не нравится</div>
-      <div><span class="mb">${ic('question-bold', 'l')}</span>Кнопка:<br>сомневаюсь</div>
-      <div><span class="yes">${ic('heart-fill', 'l')}</span>Вправо:<br>нравится</div>
+      <div><span class="no">${ic('x-bold', 'l')}</span>Не нравится</div>
+      <div><span class="mb">${ic('question-bold', 'l')}</span>Сомневаюсь</div>
+      <div><span class="yes">${ic('heart-fill', 'l')}</span>Нравится</div>
     </div>
+    <p class="how-t">Оценку ставишь кнопкой вверху карточки. Фото листаются свайпом.</p>
     <button type="button" class="row-link" data-act="results"><span class="ic">${ic('trophy', 'l')}</span><div><b>Итоги голосования</b><small>${people ? `Голосуют ${people} ${plural(people, 'человек', 'человека', 'человек')}` : 'Пока никто не голосовал'}</small></div>${ic('caret-right')}</button>
     ${me ? '' : `<div class="note-tg">Голосовать можно только из Telegram: открой бота @${esc(C.bot)}. Здесь можно просто посмотреть дома.</div>`}
   </main>`;
@@ -229,18 +229,18 @@ function voteBar(h, mode) {
   let meta;
   if (mode === 'deck') {
     const total = S.houses.filter(x => catOf(x) === S.cat).length, done = myCount(S.cat);
-    meta = `<div class="vmeta"><span>${CATS[S.cat].title}: оценено ${done} из ${total}</span>${S.hist.length ? `<button type="button" class="undo" data-act="undo">${ic('arrow-counter-clockwise-bold', 's')}Назад</button>` : ''}</div><div class="prog"><i style="width:${Math.round(done / total * 100)}%"></i></div>`;
+    meta = `<div class="vmeta">${S.hist.length ? `<button type="button" class="mini ico" data-act="undo" aria-label="Вернуться к прошлому дому">${ic('arrow-counter-clockwise-bold', 's')}</button>` : ''}<span class="cnt-t">${done} из ${total}</span><span class="sp"></span>${tools(h)}</div><div class="prog"><i style="width:${Math.round(done / total * 100)}%"></i></div>`;
   } else {
-    meta = `<div class="vmeta"><span>${mv ? 'Твоя оценка: ' + VOTE[mv.vote].label.toLowerCase() : 'Ты ещё не оценил этот дом'}</span>${mv ? `<button type="button" class="undo" data-act="clear">${ic('x', 's')}Убрать оценку</button>` : ''}</div>`;
+    meta = `<div class="vmeta"><span class="cnt-t">${mv ? 'Твоя оценка: ' + VOTE[mv.vote].label.toLowerCase() : 'Ещё не оценён'}</span><span class="sp"></span>${tools(h)}</div>`;
   }
   return `<div class="vbar pad" id="vbar"><div class="vbtns">${b(-1)}${b(0)}${b(1)}</div>${meta}</div>`;
 }
+const tools = h => `<button type="button" class="mini" data-act="togal">${ic('images', 's')}Галерея</button><button type="button" class="mini pri" data-act="listing">${ic('arrow-square-out', 's')}${esc(h.plat)}</button>`;
 function houseHtml(h, mode) {
   const A = amenities(h), acc = accents(h);
   const pp = h.price / C.people;
   const air = h.her <= h.cha ? ['Ираклион', h.her] : ['Ханья', h.cha];
   const photos = h.photos;
-  const pi = Math.min(S.photoIdx, photos.length - 1);
   const rt = h.rating;
   const t = tally(h.id);
 
@@ -254,11 +254,9 @@ function houseHtml(h, mode) {
 
   return `
   <div class="pad">
-    <div class="ph" id="ph">
-      ${img(photos[pi][1], 'm', h.name, 'loading="eager" id="phimg"')}
-      <div class="segs">${photos.length > 1 ? photos.slice(0, 20).map((_, i) => `<i class="${i === pi ? 'on' : ''}"></i>`).join('') : ''}</div>
-      <button type="button" class="zone zl" data-act="pprev" aria-label="Предыдущее фото"></button>
-      <button type="button" class="zone zr" data-act="pnext" aria-label="Следующее фото"></button>
+    <div class="ph">
+      <div class="ph-track" id="phtrack">${photos.map((p, i) => `<button type="button" class="ph-slide" data-act="gphoto" data-i="${i}" aria-label="Открыть фото ${i + 1}">${img(p[1], 'm', PHOTO[p[0]] ? PHOTO[p[0]][0] : h.name, i < 2 ? 'loading="eager"' : '')}</button>`).join('')}</div>
+      <span class="ph-count" id="phcount">1 из ${photos.length}</span>
     </div>
 
     <div class="ttl">
@@ -317,14 +315,14 @@ function houseHtml(h, mode) {
       </div>
     </section>
 
-    <section class="sec gal"><h2>Все фото <span style="color:var(--muted);font-weight:600">${photos.length}</span></h2>
+    <section class="sec gal" id="gallery"><h2>Все фото <span style="color:var(--muted);font-weight:600">${photos.length}</span></h2>
       ${gorder.map(k => `<h3>${ic(PHOTO[k][1])}${PHOTO[k][0]} <small>${groups[k].length}</small></h3>
         <div class="gg">${groups[k].map((idx, j) => `<button type="button" class="${j === 0 && groups[k].length % 2 === 1 ? 'wide' : ''}" data-act="gphoto" data-i="${idx}">${img(photos[idx][1], j === 0 && groups[k].length % 2 === 1 ? 'm' : 't', PHOTO[k][0])}</button>`).join('')}</div>`).join('')}
     </section>
 
     ${me ? `<section class="sec com"><label for="com">Комментарий к дому</label>
       <textarea id="com" maxlength="500" placeholder="Например: классный сад, но кухня маленькая">${esc((myVote(h.id) || {}).comment || '')}</textarea>
-      ${mode === 'detail' && myVote(h.id) ? `<button type="button" class="btn full" data-act="savecom">${ic('check')}Сохранить комментарий</button>` : `<p>Комментарий сохранится вместе с оценкой, когда нажмёшь кнопку наверху.</p>`}
+      ${mode === 'detail' && myVote(h.id) ? `<div class="btns"><button type="button" class="btn" data-act="savecom">${ic('check')}Сохранить</button><button type="button" class="btn" data-act="clear">${ic('x')}Убрать оценку</button></div>` : `<p>Комментарий сохранится вместе с оценкой, когда нажмёшь кнопку наверху.</p>`}
     </section>` : ''}
   </div>`;
 }
@@ -337,6 +335,7 @@ function renderDeck(anim) {
 function renderDetail() {
   const h = S.byId[S.detail]; if (!h) { history.back(); return; }
   $app.innerHTML = voteBar(h, 'detail') + `<article class="card" id="card">${houseHtml(h, 'detail')}</article>`;
+  bindCard();
 }
 function renderDone() {
   const total = S.houses.filter(x => catOf(x) === S.cat).length;
@@ -383,46 +382,14 @@ function renderResults() {
   </main>`;
 }
 
-/* ---------- swipe ---------- */
-let drag = null, swallowClick = false;
+/* ---------- photo carousel: native swipe, voting only by buttons ---------- */
 function bindCard() {
-  const card = document.getElementById('card'); if (!card) return;
-  card.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('textarea,input')) return;
-    drag = { x0: e.clientX, y0: e.clientY, t0: performance.now(), id: e.pointerId, mode: null, dx: 0 };
-  });
-  card.addEventListener('pointermove', e => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
-    if (!drag.mode) {
-      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.3) {
-        drag.mode = 'h'; try { card.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-        card.style.transition = 'none';
-        card.style.transformOrigin = `50% ${window.scrollY - card.offsetTop + window.innerHeight * 0.7}px`;
-      } else if (Math.abs(dy) > 12) { drag = null; return; } else return;
-    }
-    drag.dx = dx;
-    const W = window.innerWidth;
-    card.style.transform = `translateX(${dx}px) rotate(${(dx / W) * 7}deg)`;
-    const p = Math.min(1, Math.abs(dx) / (W * 0.28));
-    $stamp.className = 'stamp ' + (dx > 0 ? 'yes' : 'no');
-    $stamp.textContent = dx > 0 ? 'НРАВИТСЯ' : 'НЕ НРАВИТСЯ';
-    $stamp.style.opacity = p;
-  });
-  const end = e => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const d = drag; drag = null;
-    if (d.mode !== 'h') return;
-    swallowClick = true; setTimeout(() => { swallowClick = false; }, 80);
-    const W = window.innerWidth, v = Math.abs(d.dx) / Math.max(1, performance.now() - d.t0);
-    if (me && (Math.abs(d.dx) > W * 0.28 || (v > 0.6 && Math.abs(d.dx) > 50))) { cast(d.dx > 0 ? 1 : -1); return; }
-    if (!me && Math.abs(d.dx) > W * 0.28) toast('Голосовать можно только из Telegram');
-    card.style.transition = 'transform .35s cubic-bezier(.16,1,.3,1)'; card.style.transform = '';
-    $stamp.style.opacity = 0;
-  };
-  card.addEventListener('pointerup', end);
-  card.addEventListener('pointercancel', end);
+  const tr = document.getElementById('phtrack'), cnt = document.getElementById('phcount'); if (!tr || !cnt) return;
+  const n = tr.children.length; let last = -1;
+  tr.addEventListener('scroll', () => requestAnimationFrame(() => {
+    const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth));
+    if (i !== last) { last = i; cnt.textContent = `${i + 1} из ${n}`; if (i > 0) haptic(); }
+  }), { passive: true });
 }
 
 async function cast(v) {
@@ -438,11 +405,9 @@ async function cast(v) {
       card.style.transform = v === 0 ? 'translateY(40px) scale(.96)' : `translateX(${v > 0 ? 1.3 * W : -1.3 * W}px) rotate(${v > 0 ? 12 : -12}deg)`;
       card.style.opacity = '0';
     }
-    $stamp.className = 'stamp ' + (v > 0 ? 'yes' : v < 0 ? 'no' : 'yes'); $stamp.textContent = VOTE[v].label.toUpperCase(); $stamp.style.opacity = v === 0 ? 0 : 1;
     const ok = sendVote(id, v, com);
     S.hist.push(id);
     setTimeout(() => {
-      $stamp.style.opacity = 0;
       S.cur = S.queue.shift() || null; S.photoIdx = 0;
       window.scrollTo(0, 0); renderDeck(true);
     }, 280);
@@ -457,28 +422,36 @@ function undo() {
   S.cur = id; S.photoIdx = 0; $toast.hidden = true; window.scrollTo(0, 0); renderDeck(true);
 }
 
-/* ---------- viewer ---------- */
-let vList = [];
+/* ---------- viewer: full-screen photo gallery ---------- */
+let vList = [], vFull = false;
 function openViewer(h, start) {
   vList = h.photos;
   $track.innerHTML = vList.map((p, i) => `<figure>${img(p[1], 'f', PHOTO[p[0]] ? PHOTO[p[0]][0] : '', Math.abs(i - start) < 2 ? 'loading="eager"' : '')}</figure>`).join('');
-  document.getElementById('viewer-x').innerHTML = ic('x-bold');
+  document.getElementById('viewer-x').innerHTML = ic('x-bold', 'l');
+  document.getElementById('vprev').innerHTML = ic('caret-left-bold', 'l');
+  document.getElementById('vnext').innerHTML = ic('caret-right-bold', 'l');
   $viewer.hidden = false; document.body.style.overflow = 'hidden';
+  try { if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.requestFullscreen && !tg.isFullscreen) { tg.requestFullscreen(); vFull = true; } } catch (e) { vFull = false; }
   requestAnimationFrame(() => { $track.scrollLeft = start * $track.clientWidth; updCap(); });
-  syncBack();
+  syncBack(); haptic();
 }
-function updCap() { const i = Math.round($track.scrollLeft / Math.max(1, $track.clientWidth)); const p = vList[i]; if (p) $cap.textContent = `${PHOTO[p[0]] ? PHOTO[p[0]][0] : ''}, ${i + 1} из ${vList.length}`; }
-function closeViewer() { $viewer.hidden = true; document.body.style.overflow = ''; $track.innerHTML = ''; syncBack(); }
+function updCap() {
+  const i = Math.round($track.scrollLeft / Math.max(1, $track.clientWidth)); const p = vList[i]; if (!p) return;
+  $cap.textContent = `${PHOTO[p[0]] ? PHOTO[p[0]][0] : 'Фото'} · ${i + 1} из ${vList.length}`;
+  document.getElementById('vprev').disabled = i === 0;
+  document.getElementById('vnext').disabled = i === vList.length - 1;
+}
+function stepViewer(d) { const w = $track.clientWidth; const i = Math.round($track.scrollLeft / Math.max(1, w)) + d; if (i < 0 || i >= vList.length) return; $track.scrollTo({ left: i * w, behavior: 'smooth' }); }
+function closeViewer() {
+  $viewer.hidden = true; document.body.style.overflow = ''; $track.innerHTML = '';
+  try { if (vFull && tg && tg.exitFullscreen) tg.exitFullscreen(); } catch (e) { /* ignore */ }
+  vFull = false; syncBack();
+}
+document.addEventListener('keydown', e => {
+  if ($viewer.hidden) return;
+  if (e.key === 'ArrowRight') stepViewer(1); else if (e.key === 'ArrowLeft') stepViewer(-1); else if (e.key === 'Escape') closeViewer();
+});
 $track.addEventListener('scroll', () => requestAnimationFrame(updCap), { passive: true });
-
-/* ---------- photo carousel on card ---------- */
-function showPhoto(d) {
-  const h = S.byId[S.view === 'deck' ? S.cur : S.detail]; if (!h) return;
-  S.photoIdx = (S.photoIdx + d + h.photos.length) % h.photos.length;
-  const im = document.getElementById('phimg'); if (im) im.src = psrc(h.photos[S.photoIdx][1], 'm');
-  document.querySelectorAll('.segs i').forEach((el, i) => el.classList.toggle('on', i === S.photoIdx));
-  haptic();
-}
 
 /* ---------- routing ---------- */
 function route() {
@@ -502,7 +475,6 @@ function goBack() { if (!$viewer.hidden) { closeViewer(); return; } if (S.view =
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
-  if (swallowClick && el.closest('#card')) { e.preventDefault(); return; }
   const a = el.dataset.act;
   const h = S.byId[S.view === 'deck' ? S.cur : S.detail];
   switch (a) {
@@ -513,10 +485,11 @@ document.addEventListener('click', e => {
     case 'undo': undo(); return;
     case 'clear': if (S.detail) dropVote(S.detail).then(() => { toast('Оценка убрана'); renderDetail(); }); return;
     case 'savecom': if (S.detail && myVote(S.detail)) cast(myVote(S.detail).vote); return;
-    case 'pprev': showPhoto(-1); return;
-    case 'pnext': showPhoto(1); return;
+    case 'togal': { const g = document.getElementById('gallery'); if (g) g.scrollIntoView({ behavior: 'smooth', block: 'start' }); haptic(); return; }
     case 'gphoto': openViewer(h, +el.dataset.i); return;
     case 'viewer-close': closeViewer(); return;
+    case 'vprev': stepViewer(-1); return;
+    case 'vnext': stepViewer(1); return;
     case 'map': if (h && h.map) openLink(h.map); return;
     case 'listing': if (h) openLink(h.link); return;
     case 'open': location.hash = 'h-' + el.dataset.id; return;
