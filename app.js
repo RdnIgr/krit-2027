@@ -61,6 +61,9 @@ const CATS = {
   all: { title: 'Все дома', short: 'Все дома', sub: 'Без отбора' }
 };
 const CAT_KEYS = ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all'];
+/* white sand counts as close when it is a drive of 45 minutes or less, without a ferry */
+const WHITE_MAX = 45;
+const whiteNear = h => !!(h.white && !h.white.port && h.white.t != null && h.white.t <= WHITE_MAX);
 const PHOTO = {
   main: ['Главное', 'house'], ext: ['Дом и двор', 'house'], pool: ['Бассейн', 'swimming-pool'], living: ['Гостиная', 'couch'],
   kitchen: ['Кухня и столовая', 'cooking-pot'], bed: ['Спальни', 'bed'], bath: ['Ванные', 'bathtub'], env: ['Вокруг дома', 'tree'],
@@ -342,6 +345,7 @@ function houseHtml(h, mode) {
     <div class="ph">
       <div class="ph-track" id="phtrack">${slidesHtml(h, photos)}</div>
       <span class="ph-count" id="phcount">1 из ${photos.length}</span>
+      ${whiteNear(h) ? `<span class="ph-white"><span class="em">${ic('sun-fill', 's')}</span><span><b>Белый песок</b><small>${esc(h.white.n)}, ${tm(h.white.t)} на машине</small></span></span>` : ''}
     </div>
 
     <div class="ttl">
