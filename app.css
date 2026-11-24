@@ -258,3 +258,26 @@ h1,h2,h3{margin:0;letter-spacing:-.02em;text-wrap:balance}
 .vnav:disabled{opacity:0;pointer-events:none}
 @media (hover:none){.vnav{display:none}}
 .ph-slide{cursor:zoom-in}
+
+/* full-screen gallery sheet (Airbnb-style photo tour) */
+.sheet{position:fixed;inset:0;z-index:90;background:var(--bg);display:flex;flex-direction:column;animation:sheetUp .32s cubic-bezier(.16,1,.3,1);padding-top:calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))}
+.sheet.out{animation:sheetDown .22s ease-in forwards}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:none}}
+@keyframes sheetDown{to{transform:translateY(100%)}}
+.sheet-top{display:flex;align-items:center;gap:12px;padding:calc(10px + env(safe-area-inset-top,0px)) var(--side-r) 8px var(--side)}
+.sheet-top .icon-btn{background:var(--surface);box-shadow:var(--shadow);color:var(--ink);flex:none}
+.sheet-t{min-width:0}
+.sheet-t b{display:block;font-size:18px;font-weight:800}
+.sheet-t small{display:block;font-size:13px;color:var(--muted);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet-cats{display:flex;gap:8px;overflow-x:auto;padding:4px var(--side-r) 10px var(--side);scrollbar-width:none;flex:none}
+.sheet-cats::-webkit-scrollbar{display:none}
+.chip-s{flex:none;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:999px;background:var(--surface);box-shadow:var(--shadow);font-size:14px;font-weight:600;color:var(--ink);white-space:nowrap}
+.chip-s .i{color:var(--blue)}
+.chip-s small{color:var(--muted);font-weight:700}
+.sheet-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 var(--side-r) calc(24px + env(safe-area-inset-bottom,0px)) var(--side);position:relative}
+.sgrp h3{display:flex;align-items:baseline;gap:8px;font-size:18px;font-weight:800;margin:14px 0 10px}
+.sgrp h3 small{font-size:14px;color:var(--muted);font-weight:600}
+.sgrp + .sgrp{margin-top:10px}
+.viewer{z-index:110}
+.ph-slide{cursor:pointer}
+.mini b{font-weight:700;color:var(--muted)}

@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="app.css?v=3">
+<link rel="stylesheet" href="app.css?v=5">
 </head>
 <body>
 <div id="app">
@@ -20,6 +20,14 @@
     <div class="sk sk-card"></div>
     <div class="sk sk-card"></div>
   </div>
+</div>
+<div id="sheet" class="sheet" hidden role="dialog" aria-label="Все фото">
+  <div class="sheet-top">
+    <button class="icon-btn" type="button" aria-label="Закрыть" data-act="sheet-close" id="sheet-x"></button>
+    <div class="sheet-t"><b id="sheet-title"></b><small id="sheet-sub"></small></div>
+  </div>
+  <div class="sheet-cats" id="sheet-cats"></div>
+  <div class="sheet-body" id="sheet-body"></div>
 </div>
 <div id="viewer" class="viewer" hidden>
   <div class="viewer-top">
@@ -31,8 +39,8 @@
   <button class="vnav next" type="button" aria-label="Следующее фото" data-act="vnext" id="vnext"></button>
 </div>
 <div id="toast" class="toast" role="status" hidden></div>
-<script src="config.js?v=3"></script>
-<script src="icons.js?v=3"></script>
-<script src="app.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="icons.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

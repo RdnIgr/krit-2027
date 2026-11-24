@@ -56,8 +56,8 @@ const CATS = {
   far: { title: 'Подальше от моря', sub: 'До пляжа больше 30 минут, к морю удобнее на машине' }
 };
 const PHOTO = {
-  main: ['Главное', 'house'], ext: ['Дом снаружи', 'house'], pool: ['Бассейн', 'swimming-pool'], bed: ['Спальни', 'bed'],
-  living: ['Гостиная', 'couch'], kitchen: ['Кухня и столовая', 'cooking-pot'], env: ['Вокруг дома', 'tree'],
+  main: ['Главное', 'house'], ext: ['Дом и двор', 'house'], pool: ['Бассейн', 'swimming-pool'], living: ['Гостиная', 'couch'],
+  kitchen: ['Кухня и столовая', 'cooking-pot'], bed: ['Спальни', 'bed'], bath: ['Ванные', 'bathtub'], env: ['Вокруг дома', 'tree'],
   jacuzzi: ['Джакузи', 'bathtub'], gym: ['Спортзал', 'barbell'], bbq: ['Барбекю', 'fire'], kids: ['Для детей', 'baby'],
   tennis: ['Теннисный стол', 'ping-pong'], other: ['Ещё фото', 'images']
 };
@@ -70,14 +70,39 @@ const EXTRA = {
 
 /* ---------- state ---------- */
 const S = { houses: [], byId: {}, votes: [], sig: '', view: 'home', cat: 'near', rcat: store.get('krit_rcat', 'near'),
-  queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false };
+  queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false, full: {}, sheet: null };
 
-function psrc(p, size) {
-  if (/^https?:/.test(p)) return p + (p.includes('?') ? '&' : '?') + 'im_w=' + (size === 't' ? 480 : size === 'm' ? 960 : 1200);
+// photo entry: [cat, url, thumb, label, mid]; local paths, Airbnb and Booking urls are handled differently
+function psrc(e, size) {
+  const p = typeof e === 'string' ? e : e[1];
+  if (/muscache\.com/.test(p)) return p + (p.includes('?') ? '&' : '?') + 'im_w=' + (size === 't' ? 480 : size === 'm' ? 960 : 1200);
+  if (/^https?:/.test(p)) { if (typeof e !== 'string') { if (size === 't' && e[2]) return e[2]; if (size === 'm' && e[4]) return e[4]; } return p; }
   return size === 't' ? p.replace(/\/([^/]+)$/, '/t$1') : p;
 }
+const photosOf = h => S.full[h.id] || h.photos;
+const plabel = p => p[3] || (PHOTO[p[0]] ? PHOTO[p[0]][0] : 'Фото');
+const fullReq = {};
+function ensureFull(id) {
+  if (S.full[id] || fullReq[id]) return fullReq[id] || Promise.resolve(false);
+  fullReq[id] = api(`photos?house_id=eq.${id}&select=cat,label,url,mid,thumb&order=ord`).then(r => r.ok ? r.json() : []).then(rows => {
+    if (!rows.length) return false;
+    S.full[id] = rows.map(r => [PHOTO[r.cat] ? r.cat : 'other', r.url, r.thumb || '', r.label || '', r.mid || '']);
+    return true;
+  }).catch(() => false);
+  return fullReq[id];
+}
+function photosArrived(id) {
+  const showing = (S.view === 'deck' && S.cur === id) || (S.view === 'detail' && S.detail === id);
+  if (!showing) return;
+  const h = S.byId[id], ph = photosOf(h);
+  const tr = document.getElementById('phtrack');
+  if (tr && tr.scrollLeft < 4) { tr.innerHTML = slidesHtml(h, ph); document.getElementById('phcount').textContent = `1 из ${ph.length}`; }
+  const g = document.getElementById('gallery'); if (g) g.outerHTML = gallerySection(h, ph);
+  const tb = document.getElementById('togal-n'); if (tb) tb.textContent = ph.length;
+  if (S.sheet === id) renderSheet();
+}
 const img = (p, size, alt = '', extra = '') => p ? `<img src="${esc(psrc(p, size))}" alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" ${extra}>` : '';
-const heroOf = h => (h.photos.find(p => p[0] === 'main') || h.photos[0])[1];
+const heroOf = h => h.photos.find(p => p[0] === 'main') || h.photos[0];
 const catOf = h => h.near ? 'near' : 'far';
 
 const votesFor = id => S.votes.filter(v => v.house_id === id);
@@ -188,7 +213,7 @@ function coverFor(cat) {
   const withPool = list.filter(h => h.photos.some(x => x[0] === 'pool'));
   const pick = cat === 'near' ? withPool.find(h => h.walk.min <= 5) || withPool[0] || list[0] : withPool.find(h => h.env.k === 'Зелёное') || withPool[0] || list[0];
   const p = pick && (pick.photos.find(x => x[0] === 'pool') || pick.photos[0]);
-  return p ? p[1] : '';
+  return p || '';
 }
 function renderHome() {
   const people = new Set(S.votes.map(v => v.user_id)).size;
@@ -235,17 +260,27 @@ function voteBar(h, mode) {
   }
   return `<div class="vbar pad" id="vbar"><div class="vbtns">${b(-1)}${b(0)}${b(1)}</div>${meta}</div>`;
 }
-const tools = h => `<button type="button" class="mini" data-act="togal">${ic('images', 's')}Галерея</button><button type="button" class="mini pri" data-act="listing">${ic('arrow-square-out', 's')}${esc(h.plat)}</button>`;
+const tools = h => `<button type="button" class="mini" data-act="sheet">${ic('images', 's')}Фото <b id="togal-n">${photosOf(h).length}</b></button><button type="button" class="mini pri" data-act="listing">${ic('arrow-square-out', 's')}${esc(h.plat)}</button>`;
+const slidesHtml = (h, photos) => photos.map((p, i) => `<button type="button" class="ph-slide" data-act="sheet" aria-label="Открыть все фото">${img(p, 'm', plabel(p), i < 2 ? 'loading="eager"' : '')}</button>`).join('');
+function galleryGroups(photos) {
+  const groups = {}; photos.forEach((p, i) => { (groups[p[0]] = groups[p[0]] || []).push(i); });
+  return Object.keys(PHOTO).filter(k => groups[k]).map(k => [k, groups[k]]);
+}
+function galleryGrid(photos, idxs) {
+  return `<div class="gg">${idxs.map((idx, j) => { const wide = j === 0 && idxs.length % 2 === 1; return `<button type="button" class="${wide ? 'wide' : ''}" data-act="gphoto" data-i="${idx}">${img(photos[idx], wide ? 'm' : 't', plabel(photos[idx]))}</button>`; }).join('')}</div>`;
+}
+function gallerySection(h, photos) {
+  return `<section class="sec gal" id="gallery"><h2>Все фото <span style="color:var(--muted);font-weight:600">${photos.length}</span></h2>
+    ${galleryGroups(photos).map(([k, idxs]) => `<h3>${ic(PHOTO[k][1])}${PHOTO[k][0]} <small>${idxs.length}</small></h3>${galleryGrid(photos, idxs)}`).join('')}
+  </section>`;
+}
 function houseHtml(h, mode) {
   const A = amenities(h), acc = accents(h);
   const pp = h.price / C.people;
   const air = h.her <= h.cha ? ['Ираклион', h.her] : ['Ханья', h.cha];
-  const photos = h.photos;
+  const photos = photosOf(h);
   const rt = h.rating;
   const t = tally(h.id);
-
-  const groups = {}; photos.forEach((p, i) => { (groups[p[0]] = groups[p[0]] || []).push(i); });
-  const gorder = Object.keys(PHOTO).filter(k => groups[k]);
 
   const shopRows = h.shops.map(s => `<div class="li"><span class="ic">${ic(s.t.includes('рынок') ? 'storefront' : 'shopping-cart')}</span><div class="t">${esc(cap(s.t))}${s.n ? `<small>${esc(s.n)}</small>` : ''}</div><span class="v">${esc(s.ds)}</span></div>`).join('');
   const cafeRow = h.cafes.tav != null ? `<div class="li"><span class="ic">${ic('fork-knife')}</span><div class="t">Таверны и рестораны<small>в радиусе 1 км</small></div><span class="v">${h.cafes.tav}</span></div>
@@ -255,7 +290,7 @@ function houseHtml(h, mode) {
   return `
   <div class="pad">
     <div class="ph">
-      <div class="ph-track" id="phtrack">${photos.map((p, i) => `<button type="button" class="ph-slide" data-act="gphoto" data-i="${i}" aria-label="Открыть фото ${i + 1}">${img(p[1], 'm', PHOTO[p[0]] ? PHOTO[p[0]][0] : h.name, i < 2 ? 'loading="eager"' : '')}</button>`).join('')}</div>
+      <div class="ph-track" id="phtrack">${slidesHtml(h, photos)}</div>
       <span class="ph-count" id="phcount">1 из ${photos.length}</span>
     </div>
 
@@ -315,10 +350,7 @@ function houseHtml(h, mode) {
       </div>
     </section>
 
-    <section class="sec gal" id="gallery"><h2>Все фото <span style="color:var(--muted);font-weight:600">${photos.length}</span></h2>
-      ${gorder.map(k => `<h3>${ic(PHOTO[k][1])}${PHOTO[k][0]} <small>${groups[k].length}</small></h3>
-        <div class="gg">${groups[k].map((idx, j) => `<button type="button" class="${j === 0 && groups[k].length % 2 === 1 ? 'wide' : ''}" data-act="gphoto" data-i="${idx}">${img(photos[idx][1], j === 0 && groups[k].length % 2 === 1 ? 'm' : 't', PHOTO[k][0])}</button>`).join('')}</div>`).join('')}
-    </section>
+    ${gallerySection(h, photos)}
 
     ${me ? `<section class="sec com"><label for="com">Комментарий к дому</label>
       <textarea id="com" maxlength="500" placeholder="Например: классный сад, но кухня маленькая">${esc((myVote(h.id) || {}).comment || '')}</textarea>
@@ -331,11 +363,14 @@ function renderDeck(anim) {
   const h = S.byId[S.cur];
   $app.innerHTML = voteBar(h, 'deck') + `<article class="card ${anim ? 'enter' : ''}" id="card">${houseHtml(h, 'deck')}</article>`;
   bindCard(); preloadNext();
+  const id = h.id; ensureFull(id).then(ok => { if (ok) photosArrived(id); });
+  if (S.queue[0]) ensureFull(S.queue[0]);
 }
 function renderDetail() {
   const h = S.byId[S.detail]; if (!h) { history.back(); return; }
   $app.innerHTML = voteBar(h, 'detail') + `<article class="card" id="card">${houseHtml(h, 'detail')}</article>`;
   bindCard();
+  const id = h.id; ensureFull(id).then(ok => { if (ok) photosArrived(id); });
 }
 function renderDone() {
   const total = S.houses.filter(x => catOf(x) === S.cat).length;
@@ -351,7 +386,7 @@ function renderDone() {
     </div>
   </main>`;
 }
-function preloadNext() { const n = S.queue[0]; if (!n) return; const h = S.byId[n]; const im = new Image(); im.referrerPolicy = 'no-referrer'; im.src = psrc(h.photos[0][1], 'm'); }
+function preloadNext() { const n = S.queue[0]; if (!n) return; const h = S.byId[n]; const im = new Image(); im.referrerPolicy = 'no-referrer'; im.src = psrc(photosOf(h)[0], 'm'); }
 
 /* ---------- render: results ---------- */
 function renderResults() {
@@ -424,31 +459,58 @@ function undo() {
 
 /* ---------- viewer: full-screen photo gallery ---------- */
 let vList = [], vFull = false;
+const $sheet = document.getElementById('sheet');
+function wantFull(on) {
+  try {
+    if (on && !vFull && tg && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.requestFullscreen && !tg.isFullscreen) { tg.requestFullscreen(); vFull = true; }
+    if (!on && vFull && $viewer.hidden && $sheet.hidden && tg && tg.exitFullscreen) { tg.exitFullscreen(); vFull = false; }
+  } catch (e) { vFull = false; }
+}
+function renderSheet() {
+  const h = S.byId[S.sheet]; if (!h) return; const ph = photosOf(h); const gs = galleryGroups(ph);
+  document.getElementById('sheet-title').textContent = `${ph.length} ${plural(ph.length, 'фото', 'фото', 'фото')}`;
+  document.getElementById('sheet-sub').textContent = h.name;
+  document.getElementById('sheet-cats').innerHTML = gs.map(([k, idxs]) => `<button type="button" class="chip-s" data-act="sheet-jump" data-k="${k}">${ic(PHOTO[k][1], 's')}${PHOTO[k][0]} <small>${idxs.length}</small></button>`).join('');
+  document.getElementById('sheet-body').innerHTML = gs.map(([k, idxs]) => `<section class="sgrp" id="sg-${k}"><h3>${PHOTO[k][0]} <small>${idxs.length}</small></h3>${galleryGrid(ph, idxs)}</section>`).join('');
+}
+function openSheet(h) {
+  S.sheet = h.id; renderSheet();
+  document.getElementById('sheet-x').innerHTML = ic('x-bold', 'l');
+  $sheet.hidden = false; $sheet.classList.remove('out'); document.body.style.overflow = 'hidden';
+  document.getElementById('sheet-body').scrollTop = 0;
+  wantFull(true); syncBack(); haptic();
+  ensureFull(h.id).then(ok => { if (ok && S.sheet === h.id) { renderSheet(); photosArrived(h.id); } });
+}
+function closeSheet() {
+  if ($sheet.hidden) return;
+  $sheet.classList.add('out');
+  setTimeout(() => { $sheet.hidden = true; $sheet.classList.remove('out'); S.sheet = null; if ($viewer.hidden) document.body.style.overflow = ''; wantFull(false); syncBack(); }, 220);
+}
 function openViewer(h, start) {
-  vList = h.photos;
-  $track.innerHTML = vList.map((p, i) => `<figure>${img(p[1], 'f', PHOTO[p[0]] ? PHOTO[p[0]][0] : '', Math.abs(i - start) < 2 ? 'loading="eager"' : '')}</figure>`).join('');
+  vList = photosOf(h);
+  $track.innerHTML = vList.map((p, i) => `<figure>${img(p, 'f', plabel(p), Math.abs(i - start) < 2 ? 'loading="eager"' : '')}</figure>`).join('');
   document.getElementById('viewer-x').innerHTML = ic('x-bold', 'l');
   document.getElementById('vprev').innerHTML = ic('caret-left-bold', 'l');
   document.getElementById('vnext').innerHTML = ic('caret-right-bold', 'l');
   $viewer.hidden = false; document.body.style.overflow = 'hidden';
-  try { if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.requestFullscreen && !tg.isFullscreen) { tg.requestFullscreen(); vFull = true; } } catch (e) { vFull = false; }
+  wantFull(true);
   requestAnimationFrame(() => { $track.scrollLeft = start * $track.clientWidth; updCap(); });
   syncBack(); haptic();
 }
 function updCap() {
   const i = Math.round($track.scrollLeft / Math.max(1, $track.clientWidth)); const p = vList[i]; if (!p) return;
-  $cap.textContent = `${PHOTO[p[0]] ? PHOTO[p[0]][0] : 'Фото'} · ${i + 1} из ${vList.length}`;
+  $cap.textContent = `${plabel(p)} · ${i + 1} из ${vList.length}`;
   document.getElementById('vprev').disabled = i === 0;
   document.getElementById('vnext').disabled = i === vList.length - 1;
 }
 function stepViewer(d) { const w = $track.clientWidth; const i = Math.round($track.scrollLeft / Math.max(1, w)) + d; if (i < 0 || i >= vList.length) return; $track.scrollTo({ left: i * w, behavior: 'smooth' }); }
 function closeViewer() {
-  $viewer.hidden = true; document.body.style.overflow = ''; $track.innerHTML = '';
-  try { if (vFull && tg && tg.exitFullscreen) tg.exitFullscreen(); } catch (e) { /* ignore */ }
-  vFull = false; syncBack();
+  $viewer.hidden = true; $track.innerHTML = '';
+  if ($sheet.hidden) document.body.style.overflow = '';
+  wantFull(false); syncBack();
 }
 document.addEventListener('keydown', e => {
-  if ($viewer.hidden) return;
+  if ($viewer.hidden) { if (e.key === 'Escape' && !$sheet.hidden) closeSheet(); return; }
   if (e.key === 'ArrowRight') stepViewer(1); else if (e.key === 'ArrowLeft') stepViewer(-1); else if (e.key === 'Escape') closeViewer();
 });
 $track.addEventListener('scroll', () => requestAnimationFrame(updCap), { passive: true });
@@ -456,6 +518,7 @@ $track.addEventListener('scroll', () => requestAnimationFrame(updCap), { passive
 /* ---------- routing ---------- */
 function route() {
   if (!$viewer.hidden) closeViewer();
+  if (!$sheet.hidden) { $sheet.hidden = true; S.sheet = null; document.body.style.overflow = ''; wantFull(false); }
   const hsh = location.hash;
   let m;
   if ((m = hsh.match(/^#deck-(near|far)$/))) {
@@ -468,15 +531,15 @@ function route() {
 }
 function syncBack() {
   if (!tg || !tg.BackButton) return;
-  if (S.view !== 'home' || !$viewer.hidden) tg.BackButton.show(); else tg.BackButton.hide();
+  if (S.view !== 'home' || !$viewer.hidden || !$sheet.hidden) tg.BackButton.show(); else tg.BackButton.hide();
 }
-function goBack() { if (!$viewer.hidden) { closeViewer(); return; } if (S.view === 'home') return; history.back(); }
+function goBack() { if (!$viewer.hidden) { closeViewer(); return; } if (!$sheet.hidden) { closeSheet(); return; } if (S.view === 'home') return; history.back(); }
 
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const a = el.dataset.act;
-  const h = S.byId[S.view === 'deck' ? S.cur : S.detail];
+  const h = S.byId[S.sheet || (S.view === 'deck' ? S.cur : S.detail)];
   switch (a) {
     case 'cat': haptic(); if (el.dataset.replace) location.replace('#deck-' + el.dataset.k); else location.hash = 'deck-' + el.dataset.k; return;
     case 'results': haptic(); location.hash = 'results'; return;
@@ -485,7 +548,9 @@ document.addEventListener('click', e => {
     case 'undo': undo(); return;
     case 'clear': if (S.detail) dropVote(S.detail).then(() => { toast('Оценка убрана'); renderDetail(); }); return;
     case 'savecom': if (S.detail && myVote(S.detail)) cast(myVote(S.detail).vote); return;
-    case 'togal': { const g = document.getElementById('gallery'); if (g) g.scrollIntoView({ behavior: 'smooth', block: 'start' }); haptic(); return; }
+    case 'sheet': if (h) openSheet(h); return;
+    case 'sheet-close': closeSheet(); return;
+    case 'sheet-jump': { const s = document.getElementById('sg-' + el.dataset.k), b = document.getElementById('sheet-body'); if (s && b) b.scrollTo({ top: s.offsetTop - 8, behavior: 'smooth' }); haptic(); return; }
     case 'gphoto': openViewer(h, +el.dataset.i); return;
     case 'viewer-close': closeViewer(); return;
     case 'vprev': stepViewer(-1); return;
