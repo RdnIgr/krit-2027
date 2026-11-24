@@ -52,9 +52,11 @@ const VOTE = {
   '-1': { k: 'no', label: 'Не нравится', icon: 'x-bold' }
 };
 const CATS = {
-  near: { title: 'У моря', sub: 'До пляжа пешком 30 минут или меньше' },
-  far: { title: 'Подальше от моря', sub: 'До пляжа больше 30 минут, к морю удобнее на машине' }
+  near: { title: 'У моря', short: 'У моря', tag: 'Подборка', sub: 'До пляжа пешком 30 минут или меньше' },
+  far: { title: 'Подальше от моря', short: 'Подальше', tag: 'Подборка', sub: 'До пляжа больше 30 минут, к морю удобнее на машине' },
+  all: { title: 'Все дома', short: 'Все дома', tag: 'Без отбора', sub: 'Все варианты из таблицы, включая не вошедшие в подборки' }
 };
+const CAT_KEYS = ['near', 'far', 'all'];
 const PHOTO = {
   main: ['Главное', 'house'], ext: ['Дом и двор', 'house'], pool: ['Бассейн', 'swimming-pool'], living: ['Гостиная', 'couch'],
   kitchen: ['Кухня и столовая', 'cooking-pot'], bed: ['Спальни', 'bed'], bath: ['Ванные', 'bathtub'], env: ['Вокруг дома', 'tree'],
@@ -103,11 +105,13 @@ function photosArrived(id) {
 }
 const img = (p, size, alt = '', extra = '') => p ? `<img src="${esc(psrc(p, size))}" alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" ${extra}>` : '';
 const heroOf = h => h.photos.find(p => p[0] === 'main') || h.photos[0];
-const catOf = h => h.near ? 'near' : 'far';
+const inCat = (h, cat) => cat === 'all' || (h.pick && (cat === 'near') === !!h.near);
+const housesIn = cat => S.houses.filter(h => inCat(h, cat));
+const leftIn = cat => me ? housesIn(cat).filter(h => !myVote(h.id)).length : housesIn(cat).length;
 
 const votesFor = id => S.votes.filter(v => v.house_id === id);
 const myVote = id => me ? S.votes.find(v => v.house_id === id && v.user_id === me.id) : null;
-const myCount = cat => me ? S.houses.filter(h => catOf(h) === cat && myVote(h.id)).length : 0;
+const myCount = cat => me ? housesIn(cat).filter(h => myVote(h.id)).length : 0;
 function tally(id) {
   const vs = votesFor(id); const t = { yes: 0, mb: 0, no: 0, all: vs.length, vs };
   vs.forEach(v => { t[VOTE[v.vote].k]++; });
@@ -143,7 +147,7 @@ async function dropVote(id) {
 /* ---------- deck order: random per person and category, stable between visits ---------- */
 function seeded(seedStr) { let h = 2166136261; for (const c of seedStr) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 100000) / 100000; }; }
 function orderFor(cat) {
-  const ids = S.houses.filter(h => catOf(h) === cat).map(h => h.id);
+  const ids = housesIn(cat).map(h => h.id);
   const rnd = seeded((me ? me.id : store.get('krit_guest', (() => { const g = String(Math.random()).slice(2); store.set('krit_guest', g); return g; })())) + ':' + cat);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
   return ids;
@@ -208,23 +212,31 @@ function accents(h) {
 const beachName = h => h.walk.to === 'sea' ? 'моря' : 'пляжа ' + h.beach;
 
 /* ---------- render: home ---------- */
-function coverFor(cat) {
-  const list = S.houses.filter(h => catOf(h) === cat && h.plat === 'Booking');
+function coverHouse(cat, used) {
+  const list = housesIn(cat).filter(h => h.plat === 'Booking' && !used.includes(h.id));
   const withPool = list.filter(h => h.photos.some(x => x[0] === 'pool'));
-  const pick = cat === 'near' ? withPool.find(h => h.walk.min <= 5) || withPool[0] || list[0] : withPool.find(h => h.env.k === 'Зелёное') || withPool[0] || list[0];
-  const p = pick && (pick.photos.find(x => x[0] === 'pool') || pick.photos[0]);
-  return p || '';
+  if (cat === 'near') return withPool.find(h => h.walk.min <= 5) || withPool[0] || list[0];
+  if (cat === 'far') return withPool.find(h => h.env.k === 'Зелёное') || withPool[0] || list[0];
+  return withPool.find(h => !h.pick) || withPool.find(h => h.env.k === 'Средне') || withPool[0] || list[0];
+}
+function covers() {
+  if (S.covers) return S.covers;
+  const used = [], out = {};
+  CAT_KEYS.forEach(k => { const h = coverHouse(k, used); if (h) used.push(h.id); out[k] = h ? (h.photos.find(x => x[0] === 'pool') || h.photos[0]) : ''; });
+  return (S.covers = out);
 }
 function renderHome() {
   const people = new Set(S.votes.map(v => v.user_id)).size;
   const catCard = k => {
-    const n = S.houses.filter(h => catOf(h) === k).length, mine = myCount(k);
-    return `<button type="button" class="cat" data-act="cat" data-k="${k}">
-      ${img(coverFor(k), 'f', '', 'loading="eager"')}
+    const n = housesIn(k).length, mine = myCount(k), left = n - mine;
+    const state = !me || !mine ? '' : left ? `, осталось ${left}` : ', все оценены';
+    return `<button type="button" class="cat ${k === 'all' ? 'sm' : ''}" data-act="cat" data-k="${k}">
+      ${img(covers()[k], 'f', '', 'loading="eager"')}
+      <span class="cat-tag">${CATS[k].tag}</span>
       <div class="cat-b">
         <h2>${CATS[k].title}</h2>
         <p>${CATS[k].sub}</p>
-        <div class="cat-meta"><span>${n} ${plural(n, 'дом', 'дома', 'домов')}${me ? `, ты оценил ${mine}` : ''}</span><span class="go">${ic('caret-right-bold', 'l')}</span></div>
+        <div class="cat-meta"><span>${n} ${plural(n, 'дом', 'дома', 'домов')}${state}</span><span class="go">${ic('caret-right-bold', 'l')}</span></div>
         ${me ? `<div class="cat-bar"><i style="width:${Math.round(mine / n * 100)}%"></i></div>` : ''}
       </div>
     </button>`;
@@ -235,7 +247,7 @@ function renderHome() {
       <button type="button" class="pill-btn" data-act="results">${ic('trophy')}Итоги</button>
     </div>
     <header class="home-hd"><p>Крит, 12-25 июня 2027, ${C.people} человек</p><h1>Выбери категорию</h1></header>
-    <div class="cats">${catCard('near')}${catCard('far')}</div>
+    <div class="cats">${CAT_KEYS.map(catCard).join('')}</div>
     <div class="how">
       <div><span class="no">${ic('x-bold', 'l')}</span>Не нравится</div>
       <div><span class="mb">${ic('question-bold', 'l')}</span>Сомневаюсь</div>
@@ -253,7 +265,7 @@ function voteBar(h, mode) {
   const b = v => `<button type="button" class="vb ${VOTE[v].k} ${mv && mv.vote === +v ? 'on' : ''}" data-act="vote" data-v="${v}" ${me ? '' : 'disabled'}>${ic(VOTE[v].icon)}${VOTE[v].label}</button>`;
   let meta;
   if (mode === 'deck') {
-    const total = S.houses.filter(x => catOf(x) === S.cat).length, done = myCount(S.cat);
+    const total = housesIn(S.cat).length, done = myCount(S.cat);
     meta = `<div class="vmeta">${S.hist.length ? `<button type="button" class="mini ico" data-act="undo" aria-label="Вернуться к прошлому дому">${ic('arrow-counter-clockwise-bold', 's')}</button>` : ''}<span class="cnt-t">${done} из ${total}</span><span class="sp"></span>${tools(h)}</div><div class="prog"><i style="width:${Math.round(done / total * 100)}%"></i></div>`;
   } else {
     meta = `<div class="vmeta"><span class="cnt-t">${mv ? 'Твоя оценка: ' + VOTE[mv.vote].label.toLowerCase() : 'Ещё не оценён'}</span><span class="sp"></span>${tools(h)}</div>`;
@@ -361,7 +373,7 @@ function houseHtml(h, mode) {
 function renderDeck(anim) {
   if (!S.cur) { renderDone(); return; }
   const h = S.byId[S.cur];
-  $app.innerHTML = voteBar(h, 'deck') + `<article class="card ${anim ? 'enter' : ''}" id="card">${houseHtml(h, 'deck')}</article>`;
+  $app.innerHTML = voteBar(h, 'deck') + `<article class="card ${anim ? 'enter' : ''}" id="card" data-id="${h.id}">${houseHtml(h, 'deck')}</article>`;
   bindCard(); preloadNext();
   const id = h.id; ensureFull(id).then(ok => { if (ok) photosArrived(id); });
   if (S.queue[0]) ensureFull(S.queue[0]);
@@ -373,15 +385,15 @@ function renderDetail() {
   const id = h.id; ensureFull(id).then(ok => { if (ok) photosArrived(id); });
 }
 function renderDone() {
-  const total = S.houses.filter(x => catOf(x) === S.cat).length;
-  const other = S.cat === 'near' ? 'far' : 'near';
+  const total = housesIn(S.cat).length;
+  const others = CAT_KEYS.filter(k => k !== S.cat && leftIn(k) > 0);
   $app.innerHTML = `<main class="pad done">
     <span class="ic">${ic('check-circle-fill', 'xl')}</span>
     <h1>Все ${total} ${plural(total, 'дом', 'дома', 'домов')} в категории «${CATS[S.cat].title}» оценены</h1>
-    <p>Посмотри, что выбрали остальные, или переходи к другой категории.</p>
+    <p>${others.length ? 'Посмотри, что выбрали остальные, или переходи к другой категории.' : 'Ты оценил все дома. Посмотри, что выбрали остальные.'}</p>
     <div class="btns">
-      <button type="button" class="btn pri" data-act="results">${ic('trophy')}Итоги</button>
-      <button type="button" class="btn" data-act="cat" data-k="${other}" data-replace="1">${ic('caret-right')}${CATS[other].title}</button>
+      <button type="button" class="btn pri" data-act="results" data-k="${S.cat}">${ic('trophy')}Итоги</button>
+      ${others.map(k => { const l = leftIn(k); return `<button type="button" class="btn" data-act="cat" data-k="${k}" data-replace="1">${ic('caret-right')}${CATS[k].title}: ещё ${l} ${plural(l, 'дом', 'дома', 'домов')}</button>`; }).join('')}
       <button type="button" class="btn" data-act="replay">${ic('arrows-clockwise')}Пересмотреть мои оценки</button>
     </div>
   </main>`;
@@ -392,7 +404,7 @@ function preloadNext() { const n = S.queue[0]; if (!n) return; const h = S.byId[
 function renderResults() {
   const ppl = {}; S.votes.forEach(v => { (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
   const people = Object.values(ppl).sort((a, b) => b.n - a.n);
-  const list = S.houses.filter(h => catOf(h) === S.rcat).map(h => ({ h, t: tally(h.id) }))
+  const list = housesIn(CATS[S.rcat] ? S.rcat : 'near').map(h => ({ h, t: tally(h.id) }))
     .sort((a, b) => b.t.score - a.t.score || b.t.yes - a.t.yes || a.t.no - b.t.no || b.t.all - a.t.all || a.h.id - b.h.id);
   const voted = list.filter(x => x.t.all), rest = list.filter(x => !x.t.all);
   const item = ({ h, t }, i) => `<button type="button" class="rk" data-act="open" data-id="${h.id}">
@@ -406,8 +418,7 @@ function renderResults() {
   $app.innerHTML = `<main class="pad">
     <header class="rh"><h1>Итоги</h1><p>Место дома: сколько «нравится» минус сколько «не нравится».</p></header>
     <div class="seg">
-      <button type="button" data-act="rcat" data-k="near" aria-pressed="${S.rcat === 'near'}">У моря</button>
-      <button type="button" data-act="rcat" data-k="far" aria-pressed="${S.rcat === 'far'}">Подальше от моря</button>
+      ${CAT_KEYS.map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${S.rcat === k}">${CATS[k].short}</button>`).join('')}
     </div>
     ${people.length ? `<div class="ppl">${people.map(p => `<span>${ava(p.u, 's')}${esc(p.u.user_name)} <small>${p.n}</small></span>`).join('')}</div>` : ''}
     <div class="rlist">
@@ -521,7 +532,7 @@ function route() {
   if (!$sheet.hidden) { $sheet.hidden = true; S.sheet = null; document.body.style.overflow = ''; wantFull(false); }
   const hsh = location.hash;
   let m;
-  if ((m = hsh.match(/^#deck-(near|far)$/))) {
+  if ((m = hsh.match(/^#deck-(near|far|all)$/))) {
     if (S.view !== 'deck' || S.cat !== m[1]) startDeck(m[1], false);
     S.view = 'deck'; window.scrollTo(0, 0); renderDeck(true);
   } else if (hsh === '#results') { S.view = 'results'; window.scrollTo(0, 0); renderResults(); }
@@ -542,7 +553,7 @@ document.addEventListener('click', e => {
   const h = S.byId[S.sheet || (S.view === 'deck' ? S.cur : S.detail)];
   switch (a) {
     case 'cat': haptic(); if (el.dataset.replace) location.replace('#deck-' + el.dataset.k); else location.hash = 'deck-' + el.dataset.k; return;
-    case 'results': haptic(); location.hash = 'results'; return;
+    case 'results': haptic(); if (el.dataset.k) { S.rcat = el.dataset.k; S.showRest = false; store.set('krit_rcat', S.rcat); } location.hash = 'results'; return;
     case 'replay': startDeck(S.cat, true); window.scrollTo(0, 0); renderDeck(true); return;
     case 'vote': cast(+el.dataset.v); return;
     case 'undo': undo(); return;
@@ -586,7 +597,7 @@ async function boot() {
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
   paintChrome(); watchBar();
-  try { const r = await fetch('data/houses.json?v=2'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
+  try { const r = await fetch('data/houses.json?v=3'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
   catch (e) { $app.innerHTML = `<div class="pad done"><h1>Не загрузился список домов</h1><p>Закрой приложение и открой ещё раз.</p></div>`; return; }
   try { await loadVotes(); } catch (e) { toast('Оценки пока не загрузились, попробую ещё раз'); }
   if (/^#(deck-|h-|results)/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
