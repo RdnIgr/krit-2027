@@ -226,6 +226,8 @@ h1,h2,h3{margin:0;letter-spacing:-.02em;text-wrap:balance}
 .ppl small{color:var(--muted);font-weight:600}
 .rlist{display:grid;gap:10px;margin-top:12px}
 .rk{display:grid;grid-template-columns:30px 76px minmax(0,1fr);gap:12px;align-items:center;width:100%;background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:12px}
+@keyframes rkflash{0%,25%{background:#dfe3ea}100%{background:var(--surface)}}
+.rk.flash{animation:rkflash 1.3s ease-out}
 .rk .n{font-size:20px;font-weight:800;color:var(--muted);text-align:center;display:grid;place-items:center}
 .rk .n.top{color:var(--blue)}
 .rk .th{width:76px;height:76px;border-radius:12px;overflow:hidden;background:var(--tint)}

@@ -579,10 +579,19 @@ function route() {
   if ((m = hsh.match(/^#deck-([a-z0-9]+)$/)) && CATS[m[1]]) {
     if (S.view !== 'deck' || S.cat !== m[1]) startDeck(m[1], false);
     S.view = 'deck'; window.scrollTo(0, 0); renderDeck(true);
-  } else if (hsh === '#results') { S.view = 'results'; window.scrollTo(0, 0); renderResults(); }
+  } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) restoreRow(S.ret); S.ret = null; }
   else if ((m = hsh.match(/^#h-(\d+)$/)) && S.byId[+m[1]]) { S.view = 'detail'; S.detail = +m[1]; S.photoIdx = 0; window.scrollTo(0, 0); renderDetail(); }
   else { S.view = 'home'; window.scrollTo(0, 0); renderHome(); }
   syncBack();
+}
+/* back from a house to the list: same place, and the row flashes grey for a moment */
+function restoreRow(r) {
+  const row = $app.querySelector(`.rk[data-id="${r.id}"]`);
+  if (!row) { window.scrollTo(0, r.y); return; }
+  const top = Math.min(Math.max(r.top, 70), window.innerHeight - row.offsetHeight - 20);
+  window.scrollTo(0, row.getBoundingClientRect().top + window.scrollY - top);
+  row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+  row.addEventListener('animationend', () => row.classList.remove('flash'), { once: true });
 }
 function syncBack() {
   if (!tg || !tg.BackButton) return;
@@ -613,7 +622,7 @@ document.addEventListener('click', e => {
     case 'vnext': stepViewer(1); return;
     case 'map': if (h && h.map) openLink(h.map); return;
     case 'listing': if (h) openLink(h.link); return;
-    case 'open': location.hash = 'h-' + el.dataset.id; return;
+    case 'open': S.ret = S.view === 'results' ? { id: +el.dataset.id, top: el.getBoundingClientRect().top, y: window.scrollY } : null; location.hash = 'h-' + el.dataset.id; return;
     case 'rcat': S.rcat = el.dataset.k; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
     case 'rest': S.showRest = true; renderResults(); return;
   }
@@ -637,6 +646,7 @@ async function refresh() {
 
 /* ---------- boot ---------- */
 async function boot() {
+  try { history.scrollRestoration = 'manual'; } catch (e) { /* not supported */ }
   if (tg) {
     try { tg.ready(); tg.expand(); if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) { /* old client */ }
     tg.BackButton && tg.BackButton.onClick(goBack);
