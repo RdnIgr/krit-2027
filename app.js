@@ -622,7 +622,7 @@ function route() {
   if ((m = hsh.match(/^#deck-([a-z0-9]+)$/)) && CATS[m[1]]) {
     if (S.view !== 'deck' || S.cat !== m[1]) startDeck(m[1], false);
     S.view = 'deck'; window.scrollTo(0, 0); renderDeck(true);
-  } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) S.backRow = restoreRow(S.ret, !S.vtBack); S.ret = null; }
+  } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) restoreRow(S.ret); S.ret = null; }
   else if ((m = hsh.match(/^#h-(\d+)$/)) && S.byId[+m[1]]) { S.view = 'detail'; S.detail = +m[1]; S.photoIdx = 0; window.scrollTo(0, 0); renderDetail(); }
   else { S.view = 'home'; window.scrollTo(0, 0); renderHome(); }
   syncBack();
@@ -637,19 +637,13 @@ function vt(update, after) {
 }
 function heroName() { const ph = document.querySelector('#card .ph'); if (ph) ph.style.viewTransitionName = 'hero'; }
 function clearHero() { document.querySelectorAll('[style*="view-transition-name"]').forEach(e => { e.style.viewTransitionName = ''; }); }
-function flashRow(row) {
-  if (!row || !row.isConnected) return;
-  row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
-  row.addEventListener('animationend', () => row.classList.remove('flash'), { once: true });
-}
-/* back from a house to the list: same place, and the row gets a blue outline that fades */
-function restoreRow(r, flashNow) {
+/* back from a house to the list: same place, the photo settles back into its row */
+function restoreRow(r) {
   const row = $app.querySelector(`.rk[data-id="${r.id}"]`);
   if (!row) { window.scrollTo(0, r.y); return null; }
   const top = Math.min(Math.max(r.top, 70), window.innerHeight - row.offsetHeight - 20);
   window.scrollTo(0, row.getBoundingClientRect().top + window.scrollY - top);
   if (S.vtBack) { const th = row.querySelector('.th'); if (th) th.style.viewTransitionName = 'hero'; }
-  if (flashNow) flashRow(row);
   return row;
 }
 function syncBack() {
@@ -699,7 +693,7 @@ document.addEventListener('click', e => {
 window.addEventListener('hashchange', () => {
   if (S.view === 'detail' && location.hash === '#results' && S.ret && canVT() && $viewer.hidden && $sheet.hidden) {
     window.scrollTo(0, 0); heroName(); S.vtBack = true;
-    vt(() => { route(); }, () => { S.vtBack = false; clearHero(); flashRow(S.backRow); S.backRow = null; });
+    vt(() => { route(); }, () => { S.vtBack = false; clearHero(); });
     return;
   }
   route();

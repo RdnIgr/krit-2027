@@ -252,10 +252,7 @@ h1,h2,h3{margin:0;letter-spacing:-.02em;text-wrap:balance}
 .ppl small{color:var(--muted);font-weight:600}
 .rlist{display:grid;gap:10px;margin-top:12px}
 .rk{display:grid;grid-template-columns:30px 76px minmax(0,1fr);gap:12px;align-items:center;width:100%;background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:12px}
-@keyframes rkflash{0%,35%{outline-color:rgba(29,91,216,1);background:#edf3fe}100%{outline-color:rgba(29,91,216,0);background:var(--surface)}}
-.rk{outline:3px solid transparent;outline-offset:2px}
-.rk.flash{animation:rkflash 1.9s ease-out}
-.rk.opening{outline-color:var(--blue);background:#edf3fe;transform:scale(.975);transition:transform .14s cubic-bezier(.16,1,.3,1),background .14s,outline-color .14s}
+.rk.opening{transform:scale(.975);transition:transform .14s cubic-bezier(.16,1,.3,1)}
 .card.zoom-in{animation:zoomIn .36s cubic-bezier(.16,1,.3,1)}
 @keyframes zoomIn{from{opacity:0;transform:translateY(24px) scale(.94)}to{opacity:1;transform:none}}
 ::view-transition-group(hero){animation-duration:.4s;animation-timing-function:cubic-bezier(.2,.85,.25,1)}
