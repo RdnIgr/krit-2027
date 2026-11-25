@@ -309,7 +309,9 @@ function voteBar(h, mode) {
   let meta;
   if (mode === 'deck') {
     const total = housesIn(S.cat).length, done = myCount(S.cat);
-    meta = `<div class="vmeta">${S.hist.length ? `<button type="button" class="mini ico" data-act="undo" aria-label="Вернуться к прошлому дому">${ic('arrow-counter-clockwise-bold', 's')}</button>` : ''}<span class="cnt-t">${done} из ${total}</span><span class="sp"></span>${tools(h)}</div><div class="prog"><i style="width:${Math.round(done / total * 100)}%"></i></div>`;
+    const pct = Math.round(done / total * 100), from = S.lastPct != null && S.lastCat === S.cat ? S.lastPct : pct;
+    S.lastPct = pct; S.lastCat = S.cat;
+    meta = `<div class="vmeta">${S.hist.length ? `<button type="button" class="mini ico" data-act="undo" aria-label="Вернуться к прошлому дому">${ic('arrow-counter-clockwise-bold', 's')}</button>` : ''}<span class="cnt-t ${from !== pct ? 'bump' : ''}">${done} из ${total}</span><span class="sp"></span>${tools(h)}</div><div class="prog"><i id="progbar" style="width:${from}%" data-to="${pct}"></i></div>`;
   } else {
     meta = `<div class="vmeta"><span class="cnt-t">${mv ? 'Твоя оценка: ' + VOTE[mv.vote].label.toLowerCase() : 'Ещё не оценён'}</span><span class="sp"></span>${tools(h)}</div>`;
   }
@@ -417,8 +419,11 @@ function houseHtml(h, mode) {
 function renderDeck(anim) {
   if (!S.cur) { renderDone(); return; }
   const h = S.byId[S.cur];
-  $app.innerHTML = voteBar(h, 'deck') + `<article class="card ${anim ? 'enter' : ''}" id="card" data-id="${h.id}">${houseHtml(h, 'deck')}</article>`;
+  const dir = typeof anim === 'string' ? ' from-' + anim : '';
+  $app.innerHTML = voteBar(h, 'deck') + `<article class="card ${anim ? 'enter' + dir : ''}" id="card" data-id="${h.id}">${houseHtml(h, 'deck')}</article>`;
   bindCard(); preloadNext();
+  const pb = document.getElementById('progbar');
+  if (pb) requestAnimationFrame(() => requestAnimationFrame(() => { pb.style.width = pb.dataset.to + '%'; }));
   const id = h.id; ensureFull(id).then(ok => { if (ok) photosArrived(id); });
   if (S.queue[0]) ensureFull(S.queue[0]);
 }
@@ -482,32 +487,69 @@ function bindCard() {
   }), { passive: true });
 }
 
+/* vote feedback: the pressed button pops, a stamp shows over the card, then the next house slides in */
+function markChoice(v) {
+  const box = document.querySelector('.vbtns'); if (!box) return;
+  box.classList.add('chosen');
+  box.querySelectorAll('.vb').forEach(b => { const on = +b.dataset.v === v; b.classList.toggle('on', on); b.classList.remove('pop'); if (on) { void b.offsetWidth; b.classList.add('pop'); } });
+}
+function stamp(v) {
+  const k = VOTE[v].k;
+  const el = document.createElement('div');
+  el.className = 'stamp ' + k;
+  el.innerHTML = `<span class="disc">${ic(VOTE[v].icon)}</span><b>${VOTE[v].label}</b>`;
+  document.body.appendChild(el);
+  if (v === 1) {
+    for (let n = 0; n < 9; n++) {
+      const a = (n / 9) * Math.PI * 2 + Math.random() * 0.5, r = 90 + Math.random() * 60;
+      const sp = document.createElement('span');
+      sp.className = 'spark';
+      sp.style.setProperty('--dx', Math.round(Math.cos(a) * r) + 'px');
+      sp.style.setProperty('--dy', Math.round(Math.sin(a) * r) + 'px');
+      sp.style.setProperty('--s', (0.6 + Math.random() * 0.6).toFixed(2));
+      sp.style.animationDelay = Math.round(80 + Math.random() * 90) + 'ms';
+      sp.innerHTML = ic('heart-fill');
+      document.body.appendChild(sp);
+      setTimeout(() => sp.remove(), 1100);
+    }
+  }
+  setTimeout(() => el.remove(), 1000);
+}
 async function cast(v) {
   if (!me) { toast('Голосовать можно только из Telegram'); return; }
+  if (S.busy) return;
   const id = S.view === 'deck' ? S.cur : S.detail; if (!id) return;
   const com = ((document.getElementById('com') || {}).value || '').trim();
   haptic('hit');
+  markChoice(v); stamp(v);
   if (S.view === 'deck') {
+    S.busy = true;
     const card = document.getElementById('card');
     const W = window.innerWidth;
-    if (card) {
-      card.style.transition = 'transform .3s cubic-bezier(.4,0,.6,1), opacity .3s';
-      card.style.transform = v === 0 ? 'translateY(40px) scale(.96)' : `translateX(${v > 0 ? 1.3 * W : -1.3 * W}px) rotate(${v > 0 ? 12 : -12}deg)`;
-      card.style.opacity = '0';
-    }
     const ok = sendVote(id, v, com);
     S.hist.push(id);
     setTimeout(() => {
+      if (!card) return;
+      card.style.transition = 'transform .32s cubic-bezier(.5,0,.75,0), opacity .32s';
+      card.style.transform = v === 0 ? 'translateY(60px) scale(.94)' : `translateX(${v > 0 ? 1.3 * W : -1.3 * W}px) rotate(${v > 0 ? 14 : -14}deg)`;
+      card.style.opacity = '0';
+    }, 320);
+    setTimeout(() => {
+      S.busy = false;
       S.cur = S.queue.shift() || null; S.photoIdx = 0;
-      window.scrollTo(0, 0); renderDeck(true);
-    }, 280);
+      window.scrollTo(0, 0); renderDeck(v === 0 ? 'up' : v > 0 ? 'left' : 'right');
+    }, 640);
     if (await ok) toast(VOTE[v].label, true); else { S.hist.pop(); S.queue.unshift(S.cur); S.cur = id; renderDeck(true); }
   } else {
-    if (await sendVote(id, v, com)) { haptic('ok'); toast('Оценка сохранена'); const y = window.scrollY; renderDetail(); window.scrollTo(0, y); }
+    if (await sendVote(id, v, com)) {
+      haptic('ok'); toast('Оценка сохранена');
+      const y = window.scrollY; renderDetail(); window.scrollTo(0, y);
+      const b = document.querySelector(`.vb[data-v="${v}"]`); if (b) { void b.offsetWidth; b.classList.add('pop'); }
+    } else { const y = window.scrollY; renderDetail(); window.scrollTo(0, y); }
   }
 }
 function undo() {
-  if (S.view !== 'deck' || !S.hist.length) return;
+  if (S.view !== 'deck' || !S.hist.length || S.busy) return;
   const id = S.hist.pop(); if (S.cur) S.queue.unshift(S.cur);
   S.cur = id; S.photoIdx = 0; $toast.hidden = true; window.scrollTo(0, 0); renderDeck(true);
 }
