@@ -429,7 +429,8 @@ function renderDeck(anim) {
 }
 function renderDetail() {
   const h = S.byId[S.detail]; if (!h) { history.back(); return; }
-  $app.innerHTML = voteBar(h, 'detail') + `<article class="card" id="card">${houseHtml(h, 'detail')}</article>`;
+  const zoom = S.zoomIn; S.zoomIn = false;
+  $app.innerHTML = voteBar(h, 'detail') + `<article class="card ${zoom ? 'zoom-in' : ''}" id="card">${houseHtml(h, 'detail')}</article>`;
   bindCard();
   const id = h.id; ensureFull(id).then(ok => { if (ok) photosArrived(id); });
 }
@@ -621,19 +622,35 @@ function route() {
   if ((m = hsh.match(/^#deck-([a-z0-9]+)$/)) && CATS[m[1]]) {
     if (S.view !== 'deck' || S.cat !== m[1]) startDeck(m[1], false);
     S.view = 'deck'; window.scrollTo(0, 0); renderDeck(true);
-  } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) restoreRow(S.ret); S.ret = null; }
+  } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) S.backRow = restoreRow(S.ret, !S.vtBack); S.ret = null; }
   else if ((m = hsh.match(/^#h-(\d+)$/)) && S.byId[+m[1]]) { S.view = 'detail'; S.detail = +m[1]; S.photoIdx = 0; window.scrollTo(0, 0); renderDetail(); }
   else { S.view = 'home'; window.scrollTo(0, 0); renderHome(); }
   syncBack();
 }
-/* back from a house to the list: same place, and the row flashes grey for a moment */
-function restoreRow(r) {
-  const row = $app.querySelector(`.rk[data-id="${r.id}"]`);
-  if (!row) { window.scrollTo(0, r.y); return; }
-  const top = Math.min(Math.max(r.top, 70), window.innerHeight - row.offsetHeight - 20);
-  window.scrollTo(0, row.getBoundingClientRect().top + window.scrollY - top);
+/* opening a house from the list and coming back: the photo grows into the page and shrinks back */
+const canVT = () => !!document.startViewTransition && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function vt(update, after) {
+  const done = () => { try { after && after(); } catch (e) { /* ignore */ } };
+  if (!canVT()) { update(); done(); return; }
+  try { const t = document.startViewTransition(update); t.finished.then(done, done); }
+  catch (e) { update(); done(); }
+}
+function heroName() { const ph = document.querySelector('#card .ph'); if (ph) ph.style.viewTransitionName = 'hero'; }
+function clearHero() { document.querySelectorAll('[style*="view-transition-name"]').forEach(e => { e.style.viewTransitionName = ''; }); }
+function flashRow(row) {
+  if (!row || !row.isConnected) return;
   row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
   row.addEventListener('animationend', () => row.classList.remove('flash'), { once: true });
+}
+/* back from a house to the list: same place, and the row gets a blue outline that fades */
+function restoreRow(r, flashNow) {
+  const row = $app.querySelector(`.rk[data-id="${r.id}"]`);
+  if (!row) { window.scrollTo(0, r.y); return null; }
+  const top = Math.min(Math.max(r.top, 70), window.innerHeight - row.offsetHeight - 20);
+  window.scrollTo(0, row.getBoundingClientRect().top + window.scrollY - top);
+  if (S.vtBack) { const th = row.querySelector('.th'); if (th) th.style.viewTransitionName = 'hero'; }
+  if (flashNow) flashRow(row);
+  return row;
 }
 function syncBack() {
   if (!tg || !tg.BackButton) return;
@@ -664,12 +681,29 @@ document.addEventListener('click', e => {
     case 'vnext': stepViewer(1); return;
     case 'map': if (h && h.map) openLink(h.map); return;
     case 'listing': if (h) openLink(h.link); return;
-    case 'open': S.ret = S.view === 'results' ? { id: +el.dataset.id, top: el.getBoundingClientRect().top, y: window.scrollY } : null; location.hash = 'h-' + el.dataset.id; return;
+    case 'open': {
+      const id = +el.dataset.id;
+      if (S.view !== 'results') { location.hash = 'h-' + id; return; }
+      S.ret = { id, top: el.getBoundingClientRect().top, y: window.scrollY };
+      el.classList.add('opening'); haptic();
+      if (canVT()) {
+        const th = el.querySelector('.th'); if (th) th.style.viewTransitionName = 'hero';
+        vt(() => { history.pushState(null, '', '#h-' + id); route(); heroName(); }, clearHero);
+      } else { S.zoomIn = true; setTimeout(() => { location.hash = 'h-' + id; }, 140); }
+      return;
+    }
     case 'rcat': S.rcat = el.dataset.k; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
     case 'rest': S.showRest = true; renderResults(); return;
   }
 });
-window.addEventListener('hashchange', route);
+window.addEventListener('hashchange', () => {
+  if (S.view === 'detail' && location.hash === '#results' && S.ret && canVT() && $viewer.hidden && $sheet.hidden) {
+    window.scrollTo(0, 0); heroName(); S.vtBack = true;
+    vt(() => { route(); }, () => { S.vtBack = false; clearHero(); flashRow(S.backRow); S.backRow = null; });
+    return;
+  }
+  route();
+});
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
 let vbarObs;
 function watchBar() {
