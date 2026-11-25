@@ -224,6 +224,7 @@ function accents(h) {
   if (am.grill === 'no') a.push(['warn', 'fire', 'Нет гриля']);
   else if (am.grill !== 'grill' && am.grill !== 'bbq') a.push(['warn', 'fire', 'Про гриль ничего не сказано']);
   if (/камни|скал/.test(h.beachType)) a.push(['warn', 'mountains', 'Пляж каменистый']);
+  if (h.seaM <= 300 && h.walk.min > 20 && !h.walk.cross) a.push(['warn', 'waves', 'Море рядом, но пляжа у дома нет']);
   if (!h.near) a.push(['warn', 'car', w.drive ? `До моря на машине ${w.drive} мин` : 'К морю на машине']);
   if (shop > 1500 && shop < 1e9) a.push(['warn', 'shopping-cart', 'Магазин далеко']);
   return a;
@@ -384,7 +385,7 @@ function houseHtml(h, mode) {
 
     <section class="sec"><h2>Море и дорога</h2>
       <div class="list">
-        <div class="li"><span class="ic b">${ic('footprints')}</span><div class="t">Пешком до ${esc(beachName(h))}<small>по маршруту Google</small></div><span class="v">${h.walk.cross ? 'через дорогу' : tm(h.walk.min)}</span></div>
+        <div class="li"><span class="ic b">${ic('footprints')}</span><div class="t">Пешком до ${esc(beachName(h))}<small>пешеходный маршрут по карте</small></div><span class="v">${h.walk.cross ? 'через дорогу' : tm(h.walk.min)}</span></div>
         ${h.walk.drive ? `<div class="li"><span class="ic b">${ic('car')}</span><div class="t">На машине до моря</div><span class="v">${tm(h.walk.drive)}</span></div>` : ''}
         <div class="li"><span class="ic b">${ic('waves')}</span><div class="t">До моря по прямой</div><span class="v">${esc(h.sea)}</span></div>
         <div class="li"><span class="ic b">${ic('airplane-tilt')}</span><div class="t">Аэропорт Ираклион<small>на машине</small></div><span class="v">${tm(h.her)}</span></div>
@@ -722,7 +723,7 @@ async function boot() {
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
   paintChrome(); watchBar();
-  try { const r = await fetch('data/houses.json?v=4'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
+  try { const r = await fetch('data/houses.json?v=5'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
   catch (e) { $app.innerHTML = `<div class="pad done"><h1>Не загрузился список домов</h1><p>Закрой приложение и открой ещё раз.</p></div>`; return; }
   try { await loadVotes(); } catch (e) { toast('Оценки пока не загрузились, попробую ещё раз'); }
   if (/^#(deck-|h-|results)/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
