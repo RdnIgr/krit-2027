@@ -225,6 +225,7 @@ function accents(h) {
   else if (am.grill !== 'grill' && am.grill !== 'bbq') a.push(['warn', 'fire', 'Про гриль ничего не сказано']);
   if (/камни|скал/.test(h.beachType)) a.push(['warn', 'mountains', 'Пляж каменистый']);
   if (h.seaM <= 300 && h.walk.min > 20 && !h.walk.cross) a.push(['warn', 'waves', 'Море рядом, но пляжа у дома нет']);
+  if (h.cancel && h.cancel.k !== 'free') a.push(['warn', 'warning', CANCEL[h.cancel.k]]);
   if (!h.near) a.push(['warn', 'car', w.drive ? `До моря на машине ${w.drive} мин` : 'К морю на машине']);
   if (shop > 1500 && shop < 1e9) a.push(['warn', 'shopping-cart', 'Магазин далеко']);
   return a;
@@ -365,7 +366,7 @@ function houseHtml(h, mode) {
         <span class="d">${h.walk.cross ? 'от дома до пляжа ' + esc(h.beach) : 'до ' + esc(beachName(h)) + (h.walk.dist ? ', ' + esc(h.walk.dist) : '')}</span></div>
       <div class="tile price"><span class="k">${ic('house', 's')}За ${C.nights} ночей</span>
         <span class="v">${nf(h.price)}\u00a0€</span>
-        <span class="d"><b>${nf(pp)}\u00a0€</b> с человека</span></div>
+        <span class="d"><b>${nf(pp)}\u00a0€</b> с человека</span>${cancelLine(h)}</div>
       <div class="tile"><span class="k">${ic('airplane-tilt', 's')}Аэропорт</span>
         <span class="v">${tm(air[1])}</span>
         <span class="d">до ${air[0] === 'Ираклион' ? 'Ираклиона' : 'Ханьи'} на машине</span></div>
@@ -647,6 +648,18 @@ function restoreRow(r) {
   if (S.vtBack) { const th = row.querySelector('.th'); if (th) th.style.viewTransitionName = 'hero'; }
   return row;
 }
+/* Booking cancellation terms, checked for 7 adults, 12-25 June 2027 */
+const CANCEL = {
+  partial: 'Возврат при отмене только частичный',
+  nonref: 'При отмене деньги не вернут',
+  na: 'Сейчас на Booking нет мест на эти даты',
+  small: 'Сейчас на Booking нет варианта на 7 гостей'
+};
+function cancelLine(h) {
+  if (!h.cancel) return '';
+  if (h.cancel.k === 'free') return `<span class="cx ok">${ic('check-bold', 's')}Бесплатная отмена до ${esc(h.cancel.d)}</span>`;
+  return `<span class="cx no">${ic('warning', 's')}${CANCEL[h.cancel.k] || ''}</span>`;
+}
 function syncBack() {
   if (!tg || !tg.BackButton) return;
   if (S.view !== 'home' || !$viewer.hidden || !$sheet.hidden) tg.BackButton.show(); else tg.BackButton.hide();
@@ -723,7 +736,7 @@ async function boot() {
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
   paintChrome(); watchBar();
-  try { const r = await fetch('data/houses.json?v=5'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
+  try { const r = await fetch('data/houses.json?v=6'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
   catch (e) { $app.innerHTML = `<div class="pad done"><h1>Не загрузился список домов</h1><p>Закрой приложение и открой ещё раз.</p></div>`; return; }
   try { await loadVotes(); } catch (e) { toast('Оценки пока не загрузились, попробую ещё раз'); }
   if (/^#(deck-|h-|results)/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
