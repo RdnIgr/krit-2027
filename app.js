@@ -335,7 +335,6 @@ function gallerySection(h, photos) {
 }
 function houseHtml(h, mode) {
   const A = amenities(h), acc = accents(h);
-  const pp = h.price / C.people;
   const air = h.her <= h.cha ? ['Ираклион', h.her] : ['Ханья', h.cha];
   const photos = photosOf(h);
   const rt = h.rating;
@@ -364,9 +363,9 @@ function houseHtml(h, mode) {
       <div class="tile"><span class="k">${ic('footprints', 's')}${h.walk.cross ? 'Пляж' : 'Пешком'}</span>
         <span class="v">${h.walk.cross ? 'через дорогу' : tm(h.walk.min)}</span>
         <span class="d">${h.walk.cross ? 'от дома до пляжа ' + esc(h.beach) : 'до ' + esc(beachName(h)) + (h.walk.dist ? ', ' + esc(h.walk.dist) : '')}</span></div>
-      <div class="tile price"><span class="k">${ic('house', 's')}За ${C.nights} ночей</span>
+      <div class="tile price ${h.cancel && h.cancel.k !== 'free' ? 'warn' : ''}"><span class="k">${ic('house', 's')}За ${C.nights} ночей</span>
         <span class="v">${nf(h.price)}\u00a0€</span>
-        <span class="d"><b>${nf(pp)}\u00a0€</b> с человека</span>${cancelLine(h)}</div>
+        ${cancelLine(h)}</div>
       <div class="tile"><span class="k">${ic('airplane-tilt', 's')}Аэропорт</span>
         <span class="v">${tm(air[1])}</span>
         <span class="d">до ${air[0] === 'Ираклион' ? 'Ираклиона' : 'Ханьи'} на машине</span></div>

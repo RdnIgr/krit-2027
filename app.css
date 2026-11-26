@@ -164,6 +164,9 @@ h1,h2,h3{margin:0;letter-spacing:-.02em;text-wrap:balance}
 .tile .cx{display:flex;align-items:flex-start;gap:5px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.25);font-size:12.5px;line-height:1.3;font-weight:600;color:#fefefe}
 .tile .cx .i{flex:none;width:14px;height:14px;margin-top:1px}
 .tile .cx.no{color:#ffe08a}
+.tile.price.warn{background:#f5c13e;box-shadow:0 8px 22px rgba(168,106,12,.25)}
+.tile.price.warn .k,.tile.price.warn .v,.tile.price.warn .d,.tile.price.warn .cx,.tile.price.warn .cx.no{color:#3b2a05}
+.tile.price.warn .cx{border-top-color:rgba(59,42,5,.2)}
 
 .sec{margin-top:26px}
 .sec > h2{font-size:20px;font-weight:800;margin-bottom:12px}
