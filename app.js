@@ -58,9 +58,40 @@ const CATS = {
   p1: { title: 'До 4 000 €', short: 'До 4 тыс. €', big: 'до 4' },
   p2: { title: '4 000-5 000 €', short: '4-5 тыс. €', big: '4-5' },
   p3: { title: 'От 5 000 €', short: '5+ тыс. €', big: '5+' },
-  all: { title: 'Все дома', short: 'Все дома', sub: 'Без отбора' }
+  all: { title: 'Все дома', short: 'Все дома', sub: 'Без отбора' },
+  tr: { title: 'Турция по фильтрам', short: 'Турция', sub: 'Виллы по твоим фильтрам' },
+  trall: { title: 'Турция', short: 'Турция', sub: 'Все виллы в Турции' }
 };
-const CAT_KEYS = ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all'];
+const CAT_KEYS = ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'trall'];
+const isTr = h => h.country === 'tr';
+/* Turkey filters: what the filter window can choose, and the defaults (nothing chosen = no limit) */
+const TRF0 = { reg: [], walk: 0, beach: [], white: false, pool: 'any', grill: 'any', jac: false, cl: 0, price: 0, sort: 'cl' };
+const TR_SEAS = [['Средиземное море', 'med'], ['Эгейское море', 'aeg']];
+const TR_BEACH = [['sand', 'Песок'], ['mix', 'Песок и галька'], ['pebble', 'Галька']];
+const TR_SORT = [['cl', 'Оценка Claude'], ['price', 'Дешевле'], ['walk', 'Ближе к морю'], ['water', 'Вода теплее']];
+function trMatch(h, f) {
+  f = f || S.trf;
+  if (f.reg.length && !f.reg.includes(h.reg)) return false;
+  if (f.walk && h.walk.min > f.walk) return false;
+  if (f.beach.length && !f.beach.includes(h.btype)) return false;
+  if (f.white && !h.white) return false;
+  if (f.pool === 'own' && h.am.pool !== 'own') return false;
+  if (f.grill === 'coal' && h.am.grill !== 'coal') return false;
+  if (f.jac && h.am.jac === 'no') return false;
+  if (f.cl && !(h.cl && h.cl.s >= f.cl)) return false;
+  if (f.price && h.price > f.price) return false;
+  return true;
+}
+function trSort(list, how) {
+  const by = {
+    cl: (a, b) => (b.cl ? b.cl.s : 0) - (a.cl ? a.cl.s : 0) || a.price - b.price,
+    price: (a, b) => a.price - b.price,
+    walk: (a, b) => a.walk.min - b.walk.min || a.price - b.price,
+    water: (a, b) => b.water - a.water || (b.cl ? b.cl.s : 0) - (a.cl ? a.cl.s : 0)
+  }[how] || (() => 0);
+  return list.slice().sort((a, b) => by(a, b) || a.id - b.id);
+}
+const trActive = f => (f.reg.length ? 1 : 0) + (f.walk ? 1 : 0) + (f.beach.length ? 1 : 0) + (f.white ? 1 : 0) + (f.pool !== 'any' ? 1 : 0) + (f.grill !== 'any' ? 1 : 0) + (f.jac ? 1 : 0) + (f.cl ? 1 : 0) + (f.price ? 1 : 0);
 /* white sand counts as close when it is a drive of 45 minutes or less, without a ferry */
 const WHITE_MAX = 45;
 const whiteNear = h => !!(h.white && !h.white.port && h.white.t != null && h.white.t <= WHITE_MAX);
@@ -79,7 +110,8 @@ const EXTRA = {
 
 /* ---------- state ---------- */
 const S = { houses: [], byId: {}, votes: [], sig: '', view: 'home', cat: 'near', rcat: store.get('krit_rcat', 'near'), rq: '',
-  queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false, full: {}, sheet: null };
+  queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false, full: {}, sheet: null,
+  trf: Object.assign({}, TRF0, store.get('krit_trf', {})), fdraft: null, trSeen: false };
 
 // photo entry: [cat, url, thumb, label, mid]; local paths, Airbnb and Booking urls are handled differently
 function psrc(e, size) {
@@ -91,8 +123,15 @@ function psrc(e, size) {
 const photosOf = h => S.full[h.id] || h.photos;
 const plabel = p => p[3] || (PHOTO[p[0]] ? PHOTO[p[0]][0] : 'Фото');
 const fullReq = {};
+/* Turkey: all photos of all villas sit in one file, loaded the first time a Turkish villa is opened */
+let trPh = null;
+const loadTrPhotos = () => trPh || (trPh = fetch('data/turkey-photos.json?v=1').then(r => r.json()).catch(() => { trPh = null; return {}; }));
 function ensureFull(id) {
   if (S.full[id] || fullReq[id]) return fullReq[id] || Promise.resolve(false);
+  if (S.byId[id] && isTr(S.byId[id])) {
+    fullReq[id] = loadTrPhotos().then(m => { if (!m[id] || !m[id].length) return false; S.full[id] = m[id]; return true; });
+    return fullReq[id];
+  }
   fullReq[id] = api(`photos?house_id=eq.${id}&select=cat,label,url,mid,thumb&order=ord`).then(r => r.ok ? r.json() : []).then(rows => {
     if (!rows.length) return false;
     S.full[id] = rows.map(r => [PHOTO[r.cat] ? r.cat : 'other', r.url, r.thumb || '', r.label || '', r.mid || '']);
@@ -113,6 +152,8 @@ function photosArrived(id) {
 const img = (p, size, alt = '', extra = '') => p ? `<img src="${esc(psrc(p, size))}" alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" draggable="false" ${extra}>` : '';
 const heroOf = h => h.photos.find(p => p[0] === 'main') || h.photos[0];
 const inCat = (h, c) => {
+  if (isTr(h)) return c === 'trall' || (c === 'tr' && trMatch(h));
+  if (c === 'tr' || c === 'trall') return false;
   if (c === 'all') return true;
   if (c === 'top') return !!h.top;
   if (!h.pick) return false;
@@ -164,6 +205,7 @@ async function dropVote(id) {
 /* ---------- deck order: random per person and category, stable between visits ---------- */
 function seeded(seedStr) { let h = 2166136261; for (const c of seedStr) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 100000) / 100000; }; }
 function orderFor(cat) {
+  if (cat === 'tr') return trSort(housesIn('tr'), S.trf.sort).map(h => h.id);
   const ids = housesIn(cat).map(h => h.id);
   const rnd = seeded((me ? me.id : store.get('krit_guest', (() => { const g = String(Math.random()).slice(2); store.set('krit_guest', g); return g; })())) + ':' + cat);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
@@ -187,9 +229,11 @@ function amenities(h) {
   else if (a.jac === 'yard') have.push(['bathtub', 'Джакузи', 'во дворе']);
   else if (a.jac === 'yes') have.push(['bathtub', 'Джакузи', 'есть']);
   else miss.push('джакузи');
-  if (a.grill === 'grill') have.push(['fire', 'Гриль', 'для барбекю']);
-  else if (a.grill === 'bbq') have.push(['fire', 'Барбекю', 'есть всё нужное']);
+  if (a.grill === 'coal') have.push(['fire', 'Гриль на углях', a.grillTxt || 'как мангал']);
+  else if (a.grill === 'grill') have.push(['fire', 'Гриль', a.grillTxt || 'для барбекю']);
+  else if (a.grill === 'bbq') have.push(['fire', 'Барбекю', a.grillTxt || 'есть всё нужное']);
   else miss.push('гриль');
+  if (isTr(h)) return { have, miss };
   if (a.tennis) have.push(['ping-pong', 'Теннисный стол', 'настольный теннис']); else miss.push('теннисный стол');
   if (a.gym) have.push(['barbell', 'Спортзал', 'тренажёры в доме']); else miss.push('спортзал');
   if (a.kids.length) {
@@ -206,31 +250,41 @@ function accents(h) {
   const a = [], w = h.walk, am = h.am;
   if (w.cross) a.push(['', 'umbrella-simple', 'Пляж через дорогу']);
   else if (w.min <= 5) a.push(['', 'umbrella-simple', `Пляж в ${w.min} мин пешком`]);
+  const env = h.env || {};
+  if (h.white && h.white.walk) a.push(['', 'sun-fill', 'Белый песок у дома']);
   if (/песок/.test(h.beachType) && !/галька/.test(h.beachType)) a.push(['', 'sun', 'Песчаный пляж']);
-  if (h.env.k === 'Зелёное') a.push(['', 'leaf', 'Много зелени вокруг']);
+  if (h.water) a.push(['', 'thermometer', `Вода в июне около ${String(h.water).replace('.', ',')} °C`]);
+  if (h.cl && h.cl.s >= 8) a.push(['', 'sparkle-fill', 'Свежий ремонт по фото']);
+  if (env.k === 'Зелёное') a.push(['', 'leaf', 'Много зелени вокруг']);
   if (am.garden === 'garden') a.push(['', 'tree', 'Свой сад']);
   if (am.pool === 'own') a.push(['', 'swimming-pool', 'Свой бассейн']);
+  if (am.grill === 'coal') a.push(['', 'fire', 'Гриль на углях']);
   if (am.extra.includes('подогрев бассейна')) a.push(['', 'thermometer-hot', 'Бассейн с подогревом']);
   if (am.extra.includes('частный пляж/выход к морю')) a.push(['', 'umbrella-simple', 'Свой выход к морю']);
-  const air = Math.min(h.her, h.cha);
-  if (air <= 30) a.push(['', 'airplane-tilt', `Аэропорт в ${air} мин`]);
-  const shop = Math.min(...h.shops.map(s => s.d || 1e9));
+  const air = airOf(h)[0];
+  if (air && air.t <= 30) a.push(['', 'airplane-tilt', `Аэропорт в ${air.t} мин`]);
+  const shop = h.shops && h.shops.length ? Math.min(...h.shops.map(s => s.d || 1e9)) : 1e9;
   if (shop <= 500) a.push(['', 'shopping-cart', `Магазин в ${Math.round(shop / 10) * 10} м`]);
-  if (h.cafes.tav >= 5) a.push(['', 'fork-knife', `Таверны рядом: ${h.cafes.tav}`]);
-  if (/трасс/i.test(h.env.t)) a.push(['warn', 'warning', 'Рядом трасса']);
-  if (h.env.k === 'Мало зелени') a.push(['warn', 'mountains', 'Мало зелени вокруг']);
+  if (h.cafes && h.cafes.tav >= 5) a.push(['', 'fork-knife', `${isTr(h) ? 'Рестораны' : 'Таверны'} рядом: ${h.cafes.tav}`]);
+  if (/трасс/i.test(env.t || '')) a.push(['warn', 'warning', 'Рядом трасса']);
+  if (env.k === 'Мало зелени') a.push(['warn', 'mountains', 'Мало зелени вокруг']);
+  if (isTr(h) && h.btype === 'pebble') a.push(['warn', 'mountains', 'Пляж галечный']);
+  if (isTr(h) && h.cl && h.cl.s <= 4) a.push(['warn', 'warning', 'Старый ремонт по фото']);
   if (am.pool === 'shared') a.push(['warn', 'users', 'Бассейн общий']);
   if (am.pool === 'no') a.push(['warn', 'warning', 'Нет бассейна']);
   if (am.grill === 'no') a.push(['warn', 'fire', 'Нет гриля']);
-  else if (am.grill !== 'grill' && am.grill !== 'bbq') a.push(['warn', 'fire', 'Про гриль ничего не сказано']);
+  else if (am.grill !== 'grill' && am.grill !== 'bbq' && am.grill !== 'coal') a.push(['warn', 'fire', 'Про гриль ничего не сказано']);
   if (/камни|скал/.test(h.beachType)) a.push(['warn', 'mountains', 'Пляж каменистый']);
-  if (h.seaM <= 300 && h.walk.min > 20 && !h.walk.cross) a.push(['warn', 'waves', 'Море рядом, но пляжа у дома нет']);
+  if (h.seaM != null && h.seaM <= 300 && h.walk.min > 20 && !h.walk.cross) a.push(['warn', 'waves', 'Море рядом, но пляжа у дома нет']);
   if (h.cancel && h.cancel.k !== 'free') a.push(['warn', 'warning', CANCEL[h.cancel.k]]);
   if (!h.near) a.push(['warn', 'car', w.drive ? `До моря на машине ${w.drive} мин` : 'К морю на машине']);
   if (shop > 1500 && shop < 1e9) a.push(['warn', 'shopping-cart', 'Магазин далеко']);
   return a;
 }
-const beachName = h => h.walk.to === 'sea' ? 'моря' : 'пляжа ' + h.beach;
+const beachName = h => h.walk.to === 'sea' ? 'моря' : h.beach ? 'пляжа ' + h.beach : 'пляжа';
+/* airports by car, nearest first: Crete has two fixed ones, Turkey lists its own */
+const AIR_GEN = { 'Ираклион': 'Ираклиона', 'Ханья': 'Ханьи', 'Анталья': 'Антальи', 'Газипаша': 'Газипаши', 'Даламан': 'Даламана', 'Бодрум': 'Бодрума', 'Измир': 'Измира' };
+const airOf = h => h.air ? h.air : [{ n: 'Ираклион', t: h.her }, { n: 'Ханья', t: h.cha }].sort((a, b) => a.t - b.t);
 
 /* ---------- render: home ---------- */
 function coverHouse(cat, used) {
@@ -247,7 +301,47 @@ function covers() {
   ['top', 'near', 'far'].forEach(k => { const h = coverHouse(k, used); if (h) used.push(h.id); out[k] = h ? (h.photos.find(x => x[0] === 'pool') || h.photos[0]) : ''; });
   return (S.covers = out);
 }
+/* home: choose the country first */
+function trCover() {
+  if (S.trCover) return S.trCover;
+  const list = S.houses.filter(h => isTr(h) && h.plat === 'Airbnb' && h.cl && h.cl.s >= 9 && h.photos.length);
+  const h = list[0] || S.houses.find(h => isTr(h) && h.photos.length);
+  return (S.trCover = h ? h.photos[0] : '');
+}
 function renderHome() {
+  const people = new Set(S.votes.map(v => v.user_id)).size;
+  const cr = S.houses.filter(h => !isTr(h)), trl = S.houses.filter(isTr);
+  const prog = list => {
+    const n = list.length, mine = me ? list.filter(h => myVote(h.id)).length : 0;
+    const txt = !me || !mine ? `${n} ${plural(n, 'дом', 'дома', 'домов')}` : mine >= n ? `${ic('check-bold', 's')}всё оценено` : `оценено ${mine} из ${n}`;
+    return { txt, bar: me && mine ? `<span class="tl-bar"><i style="width:${Math.round(mine / n * 100)}%"></i></span>` : '', done: me && mine >= n };
+  };
+  const tile = (k, title, sub, cover, list) => {
+    const x = prog(list);
+    return `<button type="button" class="tl tlp wide country" data-act="country" data-k="${k}">
+      ${img(cover, 'f', '', 'loading="eager"')}
+      <span class="tl-b">
+        <span class="tl-t">${title}</span>
+        <span class="tl-s">${sub}</span>
+        <span class="tl-m ${x.done ? 'ok' : ''}">${x.txt}</span>${x.bar}
+      </span>
+    </button>`;
+  };
+  $app.innerHTML = `<main class="pad">
+    <div class="home-top">
+      <div class="who">${me ? ava(me) + `<b>Привет, ${esc(me.name.split(' ')[0])}</b>` : ''}</div>
+      <button type="button" class="pill-btn" data-act="results">${ic('trophy')}Итоги</button>
+    </div>
+    <header class="home-hd"><p>12-25 июня 2027, ${C.people} человек</p><h1>Куда едем?</h1></header>
+    <div class="tiles">
+      ${tile('crete', 'Крит', 'Греция, Средиземное море', covers().top, cr)}
+      ${tile('turkey', 'Турция', 'Эгейское и Средиземное море, фильтры по региону, пляжу и ремонту', trCover(), trl)}
+    </div>
+    <button type="button" class="row-link" data-act="results"><span class="ic">${ic('trophy', 'l')}</span><div><b>Итоги голосования</b><small>${people ? `Голосуют ${people} ${plural(people, 'человек', 'человека', 'человек')}` : 'Пока никто не голосовал'}</small></div>${ic('caret-right')}</button>
+    ${me ? '' : `<div class="note-tg">Голосовать можно только из Telegram: открой бота @${esc(C.bot)}. Здесь можно просто посмотреть дома.</div>`}
+  </main>`;
+}
+function renderCrete() {
   const people = new Set(S.votes.map(v => v.user_id)).size;
   const st = k => {
     const n = housesIn(k).length, mine = myCount(k);
@@ -285,6 +379,7 @@ function renderHome() {
       <div class="who">${me ? ava(me) + `<b>Привет, ${esc(me.name.split(' ')[0])}</b>` : ''}</div>
       <button type="button" class="pill-btn" data-act="results">${ic('trophy')}Итоги</button>
     </div>
+    <button type="button" class="back-l" data-act="home">${ic('caret-left-bold', 's')}Страны</button>
     <header class="home-hd"><p>Крит, 12-25 июня 2027, ${C.people} человек</p><h1>Выбери категорию</h1></header>
     <div class="tiles">
       ${photo('top', 'wide')}
@@ -302,6 +397,119 @@ function renderHome() {
     <button type="button" class="row-link" data-act="results"><span class="ic">${ic('trophy', 'l')}</span><div><b>Итоги голосования</b><small>${people ? `Голосуют ${people} ${plural(people, 'человек', 'человека', 'человек')}` : 'Пока никто не голосовал'}</small></div>${ic('caret-right')}</button>
     ${me ? '' : `<div class="note-tg">Голосовать можно только из Telegram: открой бота @${esc(C.bot)}. Здесь можно просто посмотреть дома.</div>`}
   </main>`;
+}
+
+/* ---------- Turkey: list of villas and the filter window ---------- */
+const clCls = s => s >= 8 ? 'hi' : s >= 6 ? 'mid' : 'lo';
+const fmtW = w => String(w).replace('.', ',');
+function trScoreSec(h) {
+  const rows = [];
+  if (h.cl) rows.push(`<div class="li"><span class="ic b">${ic('sparkle-fill')}</span><div class="t">Оценка Claude: ремонт и цена<small>${esc(cap(h.cl.t))}</small></div><span class="v clv ${clCls(h.cl.s)}">${h.cl.s}<small>/10</small></span></div>`);
+  if (h.fam != null) rows.push(`<div class="li"><span class="ic b">${ic('users')}</span><div class="t">Оценка семьи<small>из таблицы</small></div><span class="v">${h.fam}</span></div>`);
+  if (h.host) rows.push(`<div class="li"><span class="ic">${ic('chat-circle')}</span><div class="t">Хозяин пишет<small>${esc(h.host)}</small></div></div>`);
+  return rows.length ? `<section class="sec"><h2>Ремонт и оценки</h2><div class="list">${rows.join('')}</div></section>` : '';
+}
+function trItem(h) {
+  const t = tally(h.id), mv = myVote(h.id);
+  return `<button type="button" class="trk" data-act="open" data-id="${h.id}">
+    <span class="th">${img(heroOf(h), 't')}${h.cl ? `<span class="clb ${clCls(h.cl.s)}">${ic('sparkle-fill', 's')}${h.cl.s}</span>` : ''}</span>
+    <span class="b">
+      <b>${esc(h.name)}</b>
+      <small>${esc(h.city)} · ${tm(h.walk.min)} до пляжа · ${esc(h.beachType)}</small>
+      <span class="pr">${nf(h.price)} € <small>${h.am.pool === 'own' ? 'свой бассейн' : h.am.pool === 'shared' ? 'общий бассейн' : 'бассейн'} · вода ${fmtW(h.water)} °C${h.white ? ' · белый песок' : ''}</small></span>
+      ${t.all || mv ? `<span class="cnt">${mv ? `<span class="tag ${VOTE[mv.vote].k}">${ic(VOTE[mv.vote].icon, 's')}ты</span>` : ''}${t.all ? `<span class="yes">${ic('heart-fill', 's')}${t.yes}</span><span class="mb">${ic('question-bold', 's')}${t.mb}</span><span class="no">${ic('x-bold', 's')}${t.no}</span>` : ''}</span>` : ''}
+    </span>
+  </button>`;
+}
+function fSummary(f) {
+  const out = [];
+  if (f.reg.length) out.push(f.reg.length <= 2 ? f.reg.join(', ') : `${f.reg.length} ${plural(f.reg.length, 'регион', 'региона', 'регионов')}`);
+  if (f.walk) out.push(`до ${f.walk} мин до моря`);
+  if (f.beach.length) out.push(f.beach.map(b => TR_BEACH.find(x => x[0] === b)[1].toLowerCase()).join(', '));
+  if (f.white) out.push('белый песок');
+  if (f.pool === 'own') out.push('свой бассейн');
+  if (f.grill === 'coal') out.push('гриль на углях');
+  if (f.jac) out.push('джакузи');
+  if (f.cl) out.push(`оценка Claude ${f.cl}+`);
+  if (f.price) out.push(`до ${f.price / 1000} тыс. €`);
+  return out;
+}
+function renderTurkey() {
+  const all = S.houses.filter(isTr);
+  const list = trSort(housesIn('tr'), S.trf.sort);
+  const left = me ? list.filter(h => !myVote(h.id)).length : list.length;
+  const sum = fSummary(S.trf), act = trActive(S.trf);
+  $app.innerHTML = `<main class="pad">
+    <div class="home-top">
+      <button type="button" class="back-l" data-act="home">${ic('caret-left-bold', 's')}Страны</button>
+      <button type="button" class="pill-btn" data-act="results" data-k="trall">${ic('trophy')}Итоги</button>
+    </div>
+    <header class="home-hd"><p>Турция, 12-25 июня 2027, ${C.people} человек</p><h1>Виллы в Турции</h1></header>
+    <button type="button" class="fbar" data-act="f-open">
+      <span class="ic">${ic(act ? 'funnel-fill' : 'funnel', 'l')}</span>
+      <span class="b"><b>Фильтры${act ? ` <i>${act}</i>` : ''}</b><small>${sum.length ? esc(sum.join(' · ')) : 'Регион, пляж, бассейн, гриль, оценка'}</small></span>
+      <span class="n">${list.length}<small>из ${all.length}</small></span>
+    </button>
+    <div class="sortrow">${TR_SORT.map(([k, l]) => `<button type="button" data-act="trsort" data-k="${k}" aria-pressed="${S.trf.sort === k}">${esc(l)}</button>`).join('')}</div>
+    ${list.length ? `<button type="button" class="btn pri full go" data-act="cat" data-k="tr" ${left ? '' : 'disabled'}>${ic('hand-swipe-right')}${left ? `Оценивать подряд · ${left}` : 'Все виллы по фильтру оценены'}</button>` : ''}
+    <div class="rlist">${list.length ? list.map(trItem).join('') : `<div class="empty">По этим фильтрам вилл нет.<br><button type="button" class="btn" style="margin-top:12px" data-act="f-reset-all">Сбросить фильтры</button></div>`}</div>
+  </main>`;
+}
+/* filter window: changes go to a draft, the list updates when you press «Показать» */
+const $fs = () => document.getElementById('fsheet');
+function fCount(f) { return S.houses.filter(h => isTr(h) && trMatch(h, f)).length; }
+function renderFilters() {
+  const f = S.fdraft, all = S.houses.filter(isTr);
+  const without = k => Object.assign({}, f, { [k]: TRF0[k] });
+  const regCount = r => all.filter(h => h.reg === r && trMatch(h, without('reg'))).length;
+  const chip = (fld, v, label, n, on) => `<button type="button" class="fchip" data-act="f-set" data-f="${fld}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)}${n != null ? `<small>${n}</small>` : ''}</button>`;
+  const seg = (fld, opts) => `<div class="fseg">${opts.map(([v, l]) => `<button type="button" data-act="f-set" data-f="${fld}" data-v="${v}" aria-pressed="${String(f[fld]) === String(v)}">${esc(l)}</button>`).join('')}</div>`;
+  const regs = TR_SEAS.map(([title, sea]) => {
+    const rs = [...new Set(all.filter(h => h.sea === sea).map(h => h.reg))].sort((a, b) => all.filter(h => h.reg === b).length - all.filter(h => h.reg === a).length);
+    return `<p class="fsub">${ic('waves', 's')}${title}</p><div class="fchips">${rs.map(r => chip('reg', r, r, regCount(r), f.reg.includes(r))).join('')}</div>`;
+  }).join('');
+  const nWhite = all.filter(h => h.white && trMatch(h, without('white'))).length;
+  const n = fCount(f);
+  document.getElementById('fs-body').innerHTML = `
+    <section class="fgrp"><h3>${ic('map-pin-area')}Регион</h3>${regs}</section>
+    <section class="fgrp"><h3>${ic('footprints')}До моря пешком</h3>${seg('walk', [[0, 'Любое'], [5, 'до 5 мин'], [10, 'до 10 мин'], [15, 'до 15 мин']])}<p class="fhint">Во всех виллах пляж не дальше 20 минут пешком.</p></section>
+    <section class="fgrp"><h3>${ic('umbrella-simple')}Пляж</h3><div class="fchips">${TR_BEACH.map(([k, l]) => chip('beach', k, l, all.filter(h => h.btype === k && trMatch(h, without('beach'))).length, f.beach.includes(k))).join('')}</div>
+      <button type="button" class="ftog" data-act="f-set" data-f="white" data-v="1" aria-pressed="${f.white}"><span class="sw"></span><span><b>Только белый песок</b><small>Ылыджа в Чешме, вилл: ${nWhite}</small></span></button></section>
+    <section class="fgrp"><h3>${ic('swimming-pool')}Бассейн</h3>${seg('pool', [['any', 'Любой'], ['own', 'Только свой']])}</section>
+    <section class="fgrp"><h3>${ic('fire')}Гриль</h3>${seg('grill', [['any', 'Любой'], ['coal', 'На углях, как мангал']])}<p class="fhint">Гриль есть во всех виллах. «На углях» хозяин указал сам, у остальных тип не указан.</p></section>
+    <section class="fgrp"><h3>${ic('sparkle-fill')}Оценка Claude: ремонт и цена</h3>${seg('cl', [[0, 'Любая'], [5, '5+'], [6, '6+'], [7, '7+'], [8, '8+'], [9, '9']])}<p class="fhint">По фото: свежий светлый ремонт, просторные спальни и красивые ванные, с учётом цены.</p></section>
+    <section class="fgrp"><h3>${ic('wallet')}Цена за ${C.nights} ночей</h3>${seg('price', [[0, 'Любая'], [3000, 'до 3 тыс. €'], [4000, 'до 4 тыс. €'], [5000, 'до 5 тыс. €']])}</section>
+    <section class="fgrp"><h3>${ic('bathtub')}Ещё</h3><button type="button" class="ftog" data-act="f-set" data-f="jac" data-v="1" aria-pressed="${f.jac}"><span class="sw"></span><span><b>Есть джакузи</b><small>в доме или во дворе</small></span></button></section>
+    <section class="fgrp"><h3>${ic('sort-descending')}Сортировка</h3>${seg('sort', TR_SORT)}</section>`;
+  const go = document.getElementById('fs-go');
+  go.innerHTML = n ? `Показать ${n} ${plural(n, 'виллу', 'виллы', 'вилл')}` : 'Ничего не найдено';
+  go.disabled = !n;
+  document.getElementById('fs-reset').hidden = !trActive(f);
+}
+function openFilters() {
+  S.fdraft = JSON.parse(JSON.stringify(S.trf));
+  document.getElementById('fs-x').innerHTML = ic('x-bold', 'l');
+  renderFilters();
+  const el = $fs(); el.hidden = false; el.classList.remove('out'); document.body.style.overflow = 'hidden';
+  document.getElementById('fs-body').scrollTop = 0;
+  syncBack(); haptic();
+}
+function closeFilters() {
+  const el = $fs(); if (!el || el.hidden) return;
+  el.classList.add('out');
+  setTimeout(() => { el.hidden = true; el.classList.remove('out'); S.fdraft = null; document.body.style.overflow = ''; syncBack(); }, 220);
+}
+function setFilter(fld, v) {
+  const f = S.fdraft;
+  if (fld === 'reg' || fld === 'beach') { const i = f[fld].indexOf(v); if (i >= 0) f[fld].splice(i, 1); else f[fld].push(v); }
+  else if (fld === 'white' || fld === 'jac') f[fld] = !f[fld];
+  else if (fld === 'walk' || fld === 'cl' || fld === 'price') f[fld] = +v;
+  else f[fld] = v;
+  const y = document.getElementById('fs-body').scrollTop; renderFilters(); document.getElementById('fs-body').scrollTop = y; haptic();
+}
+function applyFilters() {
+  S.trf = S.fdraft; store.set('krit_trf', S.trf); closeFilters();
+  if (S.view === 'turkey') { window.scrollTo(0, 0); renderTurkey(); }
 }
 
 /* ---------- render: house (deck card or detail) ---------- */
@@ -335,13 +543,14 @@ function gallerySection(h, photos) {
 }
 function houseHtml(h, mode) {
   const A = amenities(h), acc = accents(h);
-  const air = h.her <= h.cha ? ['Ираклион', h.her] : ['Ханья', h.cha];
+  const airs = airOf(h), air = airs[0] || { n: '', t: null };
   const photos = photosOf(h);
   const rt = h.rating;
   const t = tally(h.id);
+  const tr = isTr(h);
 
-  const shopRows = h.shops.map(s => `<div class="li"><span class="ic">${ic(s.t.includes('рынок') ? 'storefront' : 'shopping-cart')}</span><div class="t">${esc(cap(s.t))}${s.n ? `<small>${esc(s.n)}</small>` : ''}</div><span class="v">${esc(s.ds)}</span></div>`).join('');
-  const cafeRow = h.cafes.tav != null ? `<div class="li"><span class="ic">${ic('fork-knife')}</span><div class="t">Таверны и рестораны<small>в радиусе 1 км</small></div><span class="v">${h.cafes.tav}</span></div>
+  const shopRows = (h.shops || []).map(s => `<div class="li"><span class="ic">${ic(s.t.includes('рынок') ? 'storefront' : 'shopping-cart')}</span><div class="t">${esc(cap(s.t))}${s.n ? `<small>${esc(s.n)}</small>` : ''}</div><span class="v">${esc(s.ds)}</span></div>`).join('');
+  const cafeRow = h.cafes && h.cafes.tav != null ? `<div class="li"><span class="ic">${ic('fork-knife')}</span><div class="t">${tr ? 'Рестораны' : 'Таверны и рестораны'}<small>в радиусе 1 км</small></div><span class="v">${h.cafes.tav}</span></div>
     <div class="li"><span class="ic">${ic('coffee')}</span><div class="t">Кафе и бары<small>в радиусе 1 км</small></div><span class="v">${h.cafes.caf}</span></div>
     ${h.cafes.near ? `<div class="li"><span class="ic">${ic('map-pin')}</span><div class="t">Ближайшее кафе или таверна</div><span class="v">${esc(h.cafes.near)}</span></div>` : ''}` : '';
 
@@ -350,7 +559,8 @@ function houseHtml(h, mode) {
     <div class="ph">
       <div class="ph-track" id="phtrack">${slidesHtml(h, photos)}</div>
       <span class="ph-count" id="phcount">1 из ${photos.length}</span>
-      ${whiteNear(h) ? `<span class="ph-white"><span class="em">${ic('sun-fill', 's')}</span><span><b>Белый песок</b><small>${esc(h.white.n)}, ${tm(h.white.t)} на машине</small></span></span>` : ''}
+      ${whiteNear(h) ? `<span class="ph-white"><span class="em">${ic('sun-fill', 's')}</span><span><b>Белый песок</b><small>${esc(h.white.n)}, ${tm(h.white.t)} ${h.white.walk ? 'пешком' : 'на машине'}</small></span></span>` : ''}
+      ${tr && h.cl ? `<span class="ph-cl s${h.cl.s >= 8 ? 'hi' : h.cl.s >= 6 ? 'mid' : 'lo'}">${ic('sparkle-fill', 's')}<b>${h.cl.s}</b><small>/10</small></span>` : ''}
     </div>
 
     <div class="ttl">
@@ -367,14 +577,16 @@ function houseHtml(h, mode) {
         <span class="v">${nf(h.price)}\u00a0€</span>
         ${cancelLine(h)}</div>
       <div class="tile"><span class="k">${ic('airplane-tilt', 's')}Аэропорт</span>
-        <span class="v">${tm(air[1])}</span>
-        <span class="d">до ${air[0] === 'Ираклион' ? 'Ираклиона' : 'Ханьи'} на машине</span></div>
+        <span class="v">${tm(air.t)}</span>
+        <span class="d">до ${esc(AIR_GEN[air.n] || air.n)} на машине</span></div>
       <div class="tile"><span class="k">${ic('waves', 's')}Пляж</span>
         <span class="v w">${esc(cap(h.beachType))}</span>
-        <span class="d">море по прямой ${esc(h.sea)}</span></div>
+        <span class="d">${tr ? `вода около ${String(h.water).replace('.', ',')} °C` : 'море по прямой ' + esc(h.sea)}</span></div>
     </div>
 
     ${mode === 'detail' ? `<section class="sec"><h2>Как проголосовали</h2>${t.all ? `<div class="voters">${t.vs.slice().sort((a, b) => b.vote - a.vote).map(v => `<div class="vr">${ava(v)}<div class="w"><b>${esc(v.user_name)}</b>${v.comment ? `<p>${esc(v.comment)}</p>` : ''}</div><span class="tag ${VOTE[v.vote].k}">${ic(VOTE[v.vote].icon, 's')}${VOTE[v.vote].label}</span></div>`).join('')}</div>` : `<div class="empty">Пока никто не голосовал за этот дом</div>`}</section>` : ''}
+
+    ${tr ? trScoreSec(h) : ''}
 
     <section class="sec"><h2>Что есть в доме</h2>
       <div class="amen">${A.have.map(([i, b, s]) => `<div class="am"><span class="ic">${ic(i, 'l')}</span><div><b>${esc(b)}</b><small>${esc(s)}</small></div></div>`).join('')}</div>
@@ -387,19 +599,20 @@ function houseHtml(h, mode) {
       <div class="list">
         <div class="li"><span class="ic b">${ic('footprints')}</span><div class="t">Пешком до ${esc(beachName(h))}<small>пешеходный маршрут по карте</small></div><span class="v">${h.walk.cross ? 'через дорогу' : tm(h.walk.min)}</span></div>
         ${h.walk.drive ? `<div class="li"><span class="ic b">${ic('car')}</span><div class="t">На машине до моря</div><span class="v">${tm(h.walk.drive)}</span></div>` : ''}
-        <div class="li"><span class="ic b">${ic('waves')}</span><div class="t">До моря по прямой</div><span class="v">${esc(h.sea)}</span></div>
-        <div class="li"><span class="ic b">${ic('airplane-tilt')}</span><div class="t">Аэропорт Ираклион<small>на машине</small></div><span class="v">${tm(h.her)}</span></div>
-        <div class="li"><span class="ic b">${ic('airplane-tilt')}</span><div class="t">Аэропорт Ханья<small>на машине</small></div><span class="v">${tm(h.cha)}</span></div>
-        ${h.white ? `<div class="li"><span class="ic b">${ic('sun')}</span><div class="t">Белый песок: ${esc(h.white.n)}<small>${esc(h.white.note)}</small></div><span class="v">${tm(h.white.t)}${h.white.port ? ' до порта' : ''}</span></div>` : ''}
+        ${h.sea && !tr ? `<div class="li"><span class="ic b">${ic('waves')}</span><div class="t">До моря по прямой</div><span class="v">${esc(h.sea)}</span></div>` : ''}
+        ${tr ? `<div class="li"><span class="ic b">${ic('waves')}</span><div class="t">${esc(h.seaName)}<small>температура воды 12-25 июня</small></div><span class="v">${String(h.water).replace('.', ',')} °C</span></div>` : ''}
+        ${airs.map(a => `<div class="li"><span class="ic b">${ic('airplane-tilt')}</span><div class="t">Аэропорт ${esc(a.n)}<small>на машине</small></div><span class="v">${tm(a.t)}</span></div>`).join('')}
+        ${h.white ? `<div class="li"><span class="ic b">${ic('sun')}</span><div class="t">Белый песок: ${esc(h.white.n)}<small>${esc(h.white.note)}</small></div><span class="v">${tm(h.white.t)}${h.white.walk ? ' пешком' : h.white.port ? ' до порта' : ''}</span></div>` : ''}
       </div>
-      ${h.beaches.length ? `<div class="sub">Другие пляжи рядом</div><div class="list">${h.beaches.map(b => `<div class="li"><span class="ic">${ic('umbrella-simple')}</span><div class="t">${esc(b.n)}<small>${esc(b.type)}</small></div><span class="v">${tm(b.walk)} пешком</span></div>`).join('')}</div>` : ''}
+      ${h.beachEst ? `<p class="miss">Тип пляжа в картах не указан, он определён по району. Лучше проверить на фото.</p>` : ''}
+      ${(h.beaches || []).length ? `<div class="sub">Другие пляжи рядом</div><div class="list">${h.beaches.map(b => `<div class="li"><span class="ic">${ic('umbrella-simple')}</span><div class="t">${esc(b.n)}<small>${esc(b.type)}</small></div><span class="v">${tm(b.walk)} пешком</span></div>`).join('')}</div>` : ''}
     </section>
 
-    <section class="sec"><h2>Магазины и таверны</h2><div class="list">${shopRows}${cafeRow}</div></section>
+    ${shopRows || cafeRow ? `<section class="sec"><h2>${tr ? 'Магазины и рестораны' : 'Магазины и таверны'}</h2><div class="list">${shopRows}${cafeRow}</div>${tr ? '<p class="miss">Расстояния по прямой, по данным OpenStreetMap.</p>' : ''}</section>` : ''}
 
-    ${h.sights.length ? `<section class="sec"><h2>Что посмотреть</h2><div class="list">${h.sights.map(s => `<div class="li"><span class="ic">${ic('binoculars')}</span><div class="t">${esc(s.n)}</div><span class="v">${tm(s.t)}</span></div>`).join('')}</div></section>` : ''}
+    ${(h.sights || []).length ? `<section class="sec"><h2>Что посмотреть</h2><div class="list">${h.sights.map(s => `<div class="li"><span class="ic">${ic('binoculars')}</span><div class="t">${esc(s.n)}</div><span class="v">${tm(s.t)}</span></div>`).join('')}</div></section>` : ''}
 
-    ${h.env.k ? `<section class="sec"><h2>Что вокруг дома</h2><div class="envbox"><span class="ic ${h.env.k === 'Зелёное' ? '' : 'warn'}">${ic(h.env.k === 'Зелёное' ? 'leaf' : 'mountains', 'l')}</span><div><b>${h.env.k === 'Зелёное' ? 'Зелёное место' : h.env.k === 'Средне' ? 'Зелени средне' : 'Мало зелени'}</b><p>${esc(cap(h.env.t))}</p></div></div></section>` : ''}
+    ${h.env && h.env.k ? `<section class="sec"><h2>Что вокруг дома</h2><div class="envbox"><span class="ic ${h.env.k === 'Зелёное' ? '' : 'warn'}">${ic(h.env.k === 'Зелёное' ? 'leaf' : 'mountains', 'l')}</span><div><b>${h.env.k === 'Зелёное' ? 'Зелёное место' : h.env.k === 'Средне' ? 'Зелени средне' : 'Мало зелени'}</b><p>${esc(cap(h.env.t))}</p></div></div></section>` : ''}
 
     <section class="sec"><h2>Маршрут до моря</h2>
       ${h.mapImg ? `<button type="button" class="mapimg" data-act="map">${img(h.mapImg, 'f', 'Пешеходный маршрут от дома до моря')}</button>` : ''}
@@ -437,14 +650,15 @@ function renderDetail() {
 }
 function renderDone() {
   const total = housesIn(S.cat).length;
-  const left = leftIn('all');
+  const trc = S.cat === 'tr';
+  const left = leftIn(trc ? 'trall' : 'all');
   $app.innerHTML = `<main class="pad done">
     <span class="ic">${ic('check-circle-fill', 'xl')}</span>
-    <h1>Все ${total} ${plural(total, 'дом', 'дома', 'домов')} в категории «${CATS[S.cat].title}» оценены</h1>
-    <p>${left ? `Ещё не оценено ${left} ${plural(left, 'дом', 'дома', 'домов')} в других категориях. Посмотри итоги или выбери другую категорию.` : 'Ты оценил все дома. Посмотри, что выбрали остальные.'}</p>
+    <h1>${trc ? `Все ${total} ${plural(total, 'вилла', 'виллы', 'вилл')} по твоим фильтрам оценены` : `Все ${total} ${plural(total, 'дом', 'дома', 'домов')} в категории «${CATS[S.cat].title}» оценены`}</h1>
+    <p>${trc ? (left ? `В Турции ещё не оценено ${left} ${plural(left, 'вилла', 'виллы', 'вилл')}. Поменяй фильтры, чтобы увидеть другие.` : 'Ты оценил все виллы в Турции.') : left ? `Ещё не оценено ${left} ${plural(left, 'дом', 'дома', 'домов')} в других категориях. Посмотри итоги или выбери другую категорию.` : 'Ты оценил все дома. Посмотри, что выбрали остальные.'}</p>
     <div class="btns">
-      <button type="button" class="btn pri" data-act="results" data-k="${S.cat}">${ic('trophy')}Итоги</button>
-      ${left ? `<button type="button" class="btn" data-act="home">${ic('squares-four')}Другие категории</button>` : ''}
+      <button type="button" class="btn pri" data-act="results" data-k="${trc ? 'trall' : S.cat}">${ic('trophy')}Итоги</button>
+      ${left || trc ? `<button type="button" class="btn" data-act="home">${ic(trc ? 'funnel' : 'squares-four')}${trc ? 'К списку вилл' : 'Другие категории'}</button>` : ''}
       <button type="button" class="btn" data-act="replay">${ic('arrows-clockwise')}Пересмотреть мои оценки</button>
     </div>
   </main>`;
@@ -645,7 +859,7 @@ function closeViewer() {
   wantFull(false); syncBack();
 }
 document.addEventListener('keydown', e => {
-  if ($viewer.hidden) { if (e.key === 'Escape' && !$sheet.hidden) closeSheet(); return; }
+  if ($viewer.hidden) { if (e.key === 'Escape' && !$sheet.hidden) closeSheet(); else if (e.key === 'Escape' && $fs() && !$fs().hidden) closeFilters(); return; }
   if (e.key === 'ArrowRight') stepViewer(1); else if (e.key === 'ArrowLeft') stepViewer(-1); else if (e.key === 'Escape') closeViewer();
 });
 $track.addEventListener('scroll', () => requestAnimationFrame(updCap), { passive: true });
@@ -664,7 +878,17 @@ function route() {
     S.view = 'deck'; window.scrollTo(0, 0); renderDeck(true);
   } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) restoreRow(S.ret); S.ret = null; }
   else if ((m = hsh.match(/^#h-(\d+)$/)) && S.byId[+m[1]]) { S.view = 'detail'; S.detail = +m[1]; S.photoIdx = 0; window.scrollTo(0, 0); renderDetail(); }
+  else if (hsh === '#crete') { S.view = 'crete'; window.scrollTo(0, 0); renderCrete(); }
+  else if (hsh === '#turkey') {
+    const back = S.view === 'detail' && S.retTr != null;
+    S.view = 'turkey'; renderTurkey();
+    if (back) { const row = $app.querySelector(`.trk[data-id="${S.retTr.id}"]`); window.scrollTo(0, row ? row.getBoundingClientRect().top + window.scrollY - S.retTr.top : S.retTr.y); }
+    else window.scrollTo(0, 0);
+    S.retTr = null;
+    if (S.trAuto) { S.trAuto = false; openFilters(); }
+  }
   else { S.view = 'home'; window.scrollTo(0, 0); renderHome(); }
+  if (S.view !== 'turkey' && $fs() && !$fs().hidden) { $fs().hidden = true; S.fdraft = null; document.body.style.overflow = ''; }
   syncBack();
 }
 /* opening a house from the list and coming back: the photo grows into the page and shrinks back */
@@ -700,9 +924,9 @@ function cancelLine(h) {
 }
 function syncBack() {
   if (!tg || !tg.BackButton) return;
-  if (S.view !== 'home' || !$viewer.hidden || !$sheet.hidden) tg.BackButton.show(); else tg.BackButton.hide();
+  if (S.view !== 'home' || !$viewer.hidden || !$sheet.hidden || ($fs() && !$fs().hidden)) tg.BackButton.show(); else tg.BackButton.hide();
 }
-function goBack() { if (!$viewer.hidden) { closeViewer(); return; } if (!$sheet.hidden) { closeSheet(); return; } if (S.view === 'home') return; history.back(); }
+function goBack() { if (!$viewer.hidden) { closeViewer(); return; } if (!$sheet.hidden) { closeSheet(); return; } if ($fs() && !$fs().hidden) { closeFilters(); return; } if (S.view === 'home') return; if (history.length > 1) history.back(); else location.replace('#'); }
 
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
@@ -729,7 +953,8 @@ document.addEventListener('click', e => {
     case 'listing': if (h) openLink(h.link); return;
     case 'open': {
       const id = +el.dataset.id;
-      if (S.view !== 'results') { location.hash = 'h-' + id; return; }
+      if (S.view === 'turkey') S.retTr = { id, top: el.getBoundingClientRect().top, y: window.scrollY };
+      if (S.view !== 'results') { haptic(); location.hash = 'h-' + id; return; }
       S.ret = { id, top: el.getBoundingClientRect().top, y: window.scrollY };
       el.classList.add('opening'); haptic();
       if (canVT()) {
@@ -738,6 +963,14 @@ document.addEventListener('click', e => {
       } else { S.zoomIn = true; setTimeout(() => { location.hash = 'h-' + id; }, 140); }
       return;
     }
+    case 'country': haptic(); if (el.dataset.k === 'turkey') S.trAuto = true; location.hash = el.dataset.k; return;
+    case 'f-open': openFilters(); return;
+    case 'f-close': closeFilters(); return;
+    case 'f-set': setFilter(el.dataset.f, el.dataset.v); return;
+    case 'f-reset': S.fdraft = JSON.parse(JSON.stringify(Object.assign({}, TRF0, { sort: S.fdraft.sort }))); renderFilters(); haptic(); return;
+    case 'f-reset-all': S.trf = Object.assign({}, TRF0, { sort: S.trf.sort }); store.set('krit_trf', S.trf); renderTurkey(); return;
+    case 'f-apply': haptic('ok'); applyFilters(); return;
+    case 'trsort': S.trf.sort = el.dataset.k; store.set('krit_trf', S.trf); haptic(); renderTurkey(); return;
     case 'rcat': S.rcat = el.dataset.k; S.rq = ''; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
     case 'rest': S.showRest = true; { const box = document.getElementById('rres'); if (box) box.innerHTML = resultsBody(); else renderResults(); } return;
     case 'rqclear': { onSearch(''); const inp = document.getElementById('rq'); if (inp) { inp.value = ''; inp.focus(); } haptic(); } return;
@@ -768,6 +1001,8 @@ async function refresh() {
       if (box && document.activeElement && document.activeElement.id === 'rq') box.innerHTML = resultsBody(); else renderResults();
       window.scrollTo(0, y);
     }
+    else if (S.view === 'turkey') { const y = window.scrollY; renderTurkey(); window.scrollTo(0, y); }
+    else if (S.view === 'crete') renderCrete();
     else if (S.view === 'home') renderHome();
   } catch (e) { /* offline: keep old data */ }
 }
@@ -780,10 +1015,17 @@ async function boot() {
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
   paintChrome(); watchBar();
-  try { const r = await fetch('data/houses.json?v=8'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
+  try {
+    const [cr, trl] = await Promise.all([
+      fetch('data/houses.json?v=8').then(r => r.json()),
+      fetch('data/turkey.json?v=1').then(r => r.ok ? r.json() : []).catch(() => [])
+    ]);
+    trl.forEach(h => { h.country = 'tr'; });
+    S.houses = cr.concat(trl); S.houses.forEach(h => { S.byId[h.id] = h; });
+  }
   catch (e) { $app.innerHTML = `<div class="pad done"><h1>Не загрузился список домов</h1><p>Закрой приложение и открой ещё раз.</p></div>`; return; }
   try { await loadVotes(); } catch (e) { toast('Оценки пока не загрузились, попробую ещё раз'); }
-  if (/^#(deck-|h-|results)/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
+  if (/^#(deck-|h-|results|crete|turkey)/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
   route();
   setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 20000);
 }
