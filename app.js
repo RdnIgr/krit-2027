@@ -59,13 +59,14 @@ const CATS = {
   p2: { title: '4 000-5 000 €', short: '4-5 тыс. €', big: '4-5' },
   p3: { title: 'От 5 000 €', short: '5+ тыс. €', big: '5+' },
   all: { title: 'Все дома', short: 'Все дома', sub: 'Без отбора' },
+  need: { title: 'Нужен твой голос', short: 'Дооценить', sub: 'Другим понравилось, ждут твоей оценки' },
   tr: { title: 'Турция по фильтрам', short: 'Турция', sub: 'Виллы по твоим фильтрам' },
   trall: { title: 'Турция', short: 'Турция', sub: 'Все виллы в Турции' }
 };
 const CAT_KEYS = ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'trall'];
 const isTr = h => h.country === 'tr';
 /* results are kept apart by country: Crete has its own categories, Turkey has all villas or the villas left by your filters */
-const R_KEYS = { cr: ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all'], tr: ['trall', 'tr'] };
+const R_KEYS = { cr: ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'need'], tr: ['trall', 'tr'] };
 const R_LABEL = { trall: 'Все виллы', tr: 'По моим фильтрам' };
 const rCountry = k => (k === 'tr' || k === 'trall' ? 'tr' : 'cr');
 function setRcat(k) {
@@ -178,6 +179,7 @@ const inCat = (h, c) => {
   if (isTr(h)) return c === 'trall' || (c === 'tr' && trMatch(h));
   if (c === 'tr' || c === 'trall') return false;
   if (c === 'all') return true;
+  if (c === 'need') return interest(h.id, me && me.id) >= NEED_MIN;
   if (c === 'top') return !!h.top;
   if (!h.pick) return false;
   if (c === 'near') return !!h.near;
@@ -191,6 +193,17 @@ const housesIn = cat => S.houses.filter(h => inCat(h, cat));
 const leftIn = cat => me ? housesIn(cat).filter(h => !myVote(h.id)).length : housesIn(cat).length;
 
 const votesFor = id => S.votes.filter(v => v.house_id === id);
+/* «Нужен твой голос»: interest = ❤️ 1 + ❓ ½ − ✕ ½ over the votes of the others.
+   From 1,5 (two likes, or a like and a doubt, or three doubts, or two likes against one no) the house needs everyone's vote */
+const NEED_W = { 1: 1, 0: 0.5, '-1': -0.5 };
+const NEED_MIN = 1.5;
+const interest = (id, exceptUser) => votesFor(id).reduce((s, v) => s + (exceptUser && v.user_id === exceptUser ? 0 : NEED_W[v.vote]), 0);
+/* everyone who has voted for at least one house on Crete, with the name from their latest vote */
+function creteVoters() {
+  const m = new Map();
+  S.votes.forEach(v => { const h = S.byId[v.house_id]; if (h && !isTr(h)) m.set(v.user_id, (v.user_name || '').split(' ')[0] || 'Без имени'); });
+  return [...m].map(([id, name]) => ({ id, name }));
+}
 const myVote = id => me ? S.votes.find(v => v.house_id === id && v.user_id === me.id) : null;
 const myCount = cat => me ? housesIn(cat).filter(h => myVote(h.id)).length : 0;
 function tally(id) {
@@ -229,6 +242,11 @@ async function dropVote(id) {
 function seeded(seedStr) { let h = 2166136261; for (const c of seedStr) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 100000) / 100000; }; }
 function orderFor(cat) {
   if (cat === 'tr') return trSort(housesIn('tr'), S.trf.sort).map(h => h.id);
+  if (cat === 'need') {
+    const others = id => votesFor(id).filter(v => !me || v.user_id !== me.id).length;
+    return housesIn('need').map(h => ({ id: h.id, i: interest(h.id, me && me.id), n: others(h.id) }))
+      .sort((a, b) => b.i - a.i || b.n - a.n || a.id - b.id).map(x => x.id);
+  }
   const ids = housesIn(cat).map(h => h.id);
   const rnd = seeded((me ? me.id : store.get('krit_guest', (() => { const g = String(Math.random()).slice(2); store.set('krit_guest', g); return g; })())) + ':' + cat);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
@@ -397,6 +415,17 @@ function renderCrete() {
       ${ic('caret-right')}
     </button>`;
   })();
+  /* houses the others liked and you have not rated yet; hidden while nobody else has voted */
+  const needT = (() => {
+    const n = housesIn('need').length; if (!n) return '';
+    const mine = myCount('need'), left = n - mine, done = me && !left;
+    const txt = !me ? `Другим понравились ${n} ${plural(n, 'дом', 'дома', 'домов')}` : done ? `${ic('check-bold', 's')}ты оценил всё, что понравилось другим` : `Другим понравилось, ждут тебя ${left} ${plural(left, 'дом', 'дома', 'домов')}`;
+    return `<button type="button" class="tl row need ${done ? 'is-done' : ''}" data-act="cat" data-k="need">
+      <span class="tl-ic">${ic('users', 'l')}</span>
+      <span class="tl-b"><b>${CATS.need.title}</b><small class="${done ? 'ok' : ''}">${txt}</small>${me && mine ? `<span class="tl-bar"><i style="width:${Math.round(mine / n * 100)}%"></i></span>` : ''}</span>
+      ${ic('caret-right')}
+    </button>`;
+  })();
   $app.innerHTML = `<main class="pad">
     <div class="home-top">
       <div class="who">${me ? ava(me) + `<b>Привет, ${esc(me.name.split(' ')[0])}</b>` : ''}</div>
@@ -405,6 +434,7 @@ function renderCrete() {
     <button type="button" class="back-l" data-act="home">${ic('caret-left-bold', 's')}Страны</button>
     <header class="home-hd"><p>Крит, 12-25 июня 2027, ${C.people} человек</p><h1>Выбери категорию</h1></header>
     <div class="tiles">
+      ${needT}
       ${photo('top', 'wide')}
       ${photo('near', '')}${photo('far', '')}
       <p class="tl-lbl">${ic('wallet', 's')}По цене за ${C.nights} ночей на всех</p>
@@ -752,7 +782,7 @@ function renderDone() {
   const left = leftIn(trc ? 'trall' : 'all');
   $app.innerHTML = `<main class="pad done">
     <span class="ic">${ic('check-circle-fill', 'xl')}</span>
-    <h1>${trc ? `Все ${total} ${plural(total, 'вилла', 'виллы', 'вилл')} по твоим фильтрам оценены` : `Все ${total} ${plural(total, 'дом', 'дома', 'домов')} в категории «${CATS[S.cat].title}» оценены`}</h1>
+    <h1>${trc ? `Все ${total} ${plural(total, 'вилла', 'виллы', 'вилл')} по твоим фильтрам оценены` : S.cat === 'need' ? 'Ты оценил все дома, которые понравились другим' : `Все ${total} ${plural(total, 'дом', 'дома', 'домов')} в категории «${CATS[S.cat].title}» оценены`}</h1>
     <p>${trc ? (left ? `В Турции ещё не оценено ${left} ${plural(left, 'вилла', 'виллы', 'вилл')}. Поменяй фильтры, чтобы увидеть другие.` : 'Ты оценил все виллы в Турции.') : left ? `Ещё не оценено ${left} ${plural(left, 'дом', 'дома', 'домов')} в других категориях. Посмотри итоги или выбери другую категорию.` : 'Ты оценил все дома. Посмотри, что выбрали остальные.'}</p>
     <div class="btns">
       <button type="button" class="btn pri" data-act="results" data-k="${trc ? 'trall' : S.cat}">${ic('trophy')}Итоги</button>
@@ -778,15 +808,28 @@ function matchesQuery(h, q) {
   return words.length > 0 && words.every(w => sk.includes(w));
 }
 const byScore = (a, b) => b.t.score - a.t.score || b.t.yes - a.t.yes || a.t.no - b.t.no || b.t.all - a.t.all || a.h.id - b.h.id;
-function resultItem({ h, t }, i) {
+function resultItem({ h, t, wait }, i) {
+  const crown = !wait && i === 0 && t.score > 0;
   return `<button type="button" class="rk" data-act="open" data-id="${h.id}">
-      <span class="n ${i < 3 && t.score > 0 ? 'top' : ''}">${i === 0 && t.score > 0 ? ic('crown-fill', 'l') : i + 1}</span>
+      <span class="n ${!wait && i < 3 && t.score > 0 ? 'top' : ''}">${crown ? ic('crown-fill', 'l') : i + 1}</span>
       <span class="th">${img(heroOf(h), 't')}</span>
       <span class="b"><b>${esc(h.name)}</b><small>${isTr(h) ? esc(h.city) + ', ' : ''}${h.walk.cross ? 'пляж через дорогу' : tm(h.walk.min) + (h.walk.to === 'sea' ? ' до моря' : ' до пляжа')}, ${nf(h.price)}\u00a0€</small>
         ${t.all ? `<span class="cnt"><span class="yes">${ic('heart-fill', 's')}${t.yes}</span><span class="mb">${ic('question-bold', 's')}${t.mb}</span><span class="no">${ic('x-bold', 's')}${t.no}</span><span class="sc">${t.score > 0 ? '+' : ''}${t.score}</span></span>` : `<small>Голосов пока нет</small>`}
       </span>
-      ${t.all ? `<span class="vs">${t.vs.slice().sort((a, b) => b.vote - a.vote).map(v => `<span class="tag ${VOTE[v.vote].k}">${ic(VOTE[v.vote].icon, 's')}${esc(v.user_name.split(' ')[0])}</span>`).join('')}</span>` : ''}
+      ${t.all || wait ? `<span class="vs">${t.vs.slice().sort((a, b) => b.vote - a.vote).map(v => `<span class="tag ${VOTE[v.vote].k}">${ic(VOTE[v.vote].icon, 's')}${esc(v.user_name.split(' ')[0])}</span>`).join('')}${(wait || []).map(u => `<span class="tag wait">${ic('question', 's')}${esc(u.name)}</span>`).join('')}</span>` : ''}
     </button>`;
+}
+/* Итоги → «Дооценить»: houses with shared interest where somebody on Crete has not voted yet, and who we are waiting for */
+function needBody() {
+  const crowd = creteVoters();
+  const list = S.houses.filter(h => !isTr(h)).map(h => {
+    const t = tally(h.id), got = new Set(t.vs.map(v => v.user_id));
+    return { h, t, i: interest(h.id, null), wait: crowd.filter(u => !got.has(u.id)) };
+  }).filter(x => x.i >= NEED_MIN && x.wait.length)
+    .sort((a, b) => b.i - a.i || a.wait.length - b.wait.length || byScore(a, b));
+  const rule = `<p class="rnote need-rule">Здесь дома, к которым уже есть общий интерес, но проголосовали не все. Считаем так: ${ic('heart-fill', 's')} = 1, ${ic('question-bold', 's')} = ½, ${ic('x-bold', 's')} = −½. Если сумма 1,5 или больше, дому нужны оценки остальных. Серым отмечено, кого ждём.</p>`;
+  if (!list.length) return rule + `<div class="empty">Сейчас дооценивать нечего: у всех домов с интересом уже есть все голоса</div>`;
+  return rule + `<div class="rlist">${list.map(resultItem).join('')}</div>`;
 }
 /* the list under the search box: a category ranking, or search hits among this country's houses with their place there */
 function resultsBody() {
@@ -799,6 +842,7 @@ function resultsBody() {
     return `<p class="rnote">Найдено ${hits.length} среди ${tr ? `${pool.length} вилл в Турции` : `${pool.length} домов на Крите`}. Номер слева: место в общем рейтинге ${tr ? 'Турции' : 'Крита'}.</p>
       <div class="rlist">${hits.map(([x, i]) => resultItem(x, i)).join('')}</div>`;
   }
+  if (S.rcat === 'need') return needBody();
   const list = housesIn(R_KEYS[c].includes(S.rcat) ? S.rcat : R_KEYS[c][0]).map(h => ({ h, t: tally(h.id) })).sort(byScore);
   const voted = list.filter(x => x.t.all), rest = list.filter(x => !x.t.all);
   const none = S.rcat === 'tr' && !list.length ? 'По твоим фильтрам вилл нет. Поменяй фильтры на экране Турции.' : `${tr ? 'Среди этих вилл' : 'В этой категории'} ещё никто не голосовал`;
@@ -814,7 +858,7 @@ function resultsMid() {
   S.votes.forEach(v => { const h = S.byId[v.house_id]; if (!h || isTr(h) !== tr) return; (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
   const people = Object.values(ppl).sort((a, b) => b.n - a.n);
   return `<div class="rchips ${q ? 'off' : ''}">
-      ${R_KEYS[c].map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : k === 'tr' ? ic('funnel', 's') : ''}${R_LABEL[k] || CATS[k].short}</button>`).join('')}
+      ${R_KEYS[c].map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : k === 'tr' ? ic('funnel', 's') : k === 'need' ? ic('users', 's') : ''}${R_LABEL[k] || CATS[k].short}</button>`).join('')}
     </div>
     ${people.length ? `<div class="ppl">${people.map(p => `<span>${ava(p.u, 's')}${esc(p.u.user_name)} <small>${p.n}</small></span>`).join('')}</div>` : `<p class="rnote">${tr ? 'За виллы в Турции' : 'За дома на Крите'} пока никто не голосовал.</p>`}`;
 }
