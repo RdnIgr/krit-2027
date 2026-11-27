@@ -735,7 +735,7 @@ async function boot() {
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
   paintChrome(); watchBar();
-  try { const r = await fetch('data/houses.json?v=7'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
+  try { const r = await fetch('data/houses.json?v=8'); S.houses = await r.json(); S.houses.forEach(h => { S.byId[h.id] = h; }); }
   catch (e) { $app.innerHTML = `<div class="pad done"><h1>Не загрузился список домов</h1><p>Закрой приложение и открой ещё раз.</p></div>`; return; }
   try { await loadVotes(); } catch (e) { toast('Оценки пока не загрузились, попробую ещё раз'); }
   if (/^#(deck-|h-|results)/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
