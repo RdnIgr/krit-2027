@@ -412,7 +412,9 @@ main > .back-l{margin-top:14px}
 
 /* ---------- filter window ---------- */
 .fsheet .sheet-top .sheet-t{flex:1}
-.fs-reset{flex:none;min-height:38px;padding:6px 14px;border-radius:999px;background:var(--surface);box-shadow:var(--shadow);font-weight:700;font-size:14px;color:var(--red)}
+.fs-reset{flex:none;min-height:38px;padding:6px 14px;border-radius:999px;background:var(--surface);box-shadow:var(--shadow);font-weight:700;font-size:14px;color:var(--red);opacity:0;transform:scale(.9);visibility:hidden;pointer-events:none;transition:opacity .18s ease,transform .22s cubic-bezier(.23,1,.32,1),visibility 0s .22s}
+.fs-reset.on{opacity:1;transform:none;visibility:visible;pointer-events:auto;transition:opacity .18s ease,transform .22s cubic-bezier(.23,1,.32,1),visibility 0s}
+.fs-reset.on:active{transform:scale(.95)}
 .fsheet .sheet-body{padding-bottom:110px}
 .fgrp{max-width:720px;margin:0 auto;padding:14px 0 6px}
 .fgrp + .fgrp{border-top:1px solid var(--line)}
@@ -421,21 +423,63 @@ main > .back-l{margin-top:14px}
 .fsub{display:flex;align-items:center;gap:6px;margin:10px 0 8px;font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
 .fsub .i{color:var(--muted)}
 .fchips{display:flex;flex-wrap:wrap;gap:8px}
-.fchip{display:inline-flex;align-items:center;gap:7px;min-height:42px;padding:8px 14px;border-radius:999px;background:var(--surface);box-shadow:var(--shadow);font-weight:700;font-size:15px;color:var(--ink)}
-.fchip small{font-size:12.5px;font-weight:700;color:var(--muted)}
+.fchip{display:inline-flex;align-items:center;gap:7px;min-height:42px;padding:8px 14px;border-radius:999px;background:var(--surface);box-shadow:var(--shadow);font-weight:700;font-size:15px;color:var(--ink);transition:background-color .2s ease,color .2s ease,box-shadow .2s ease,opacity .2s ease,transform .16s ease-out}
+.fchip:active{transform:scale(.95)}
+.fchip.zero{opacity:.45}
+.fchip .ck{display:inline-grid;place-items:center;width:0;margin-right:-7px;opacity:0;transform:scale(.4) rotate(-25deg);overflow:visible}
+.fchip[aria-pressed="true"] .ck{width:16px;margin-right:0;opacity:1;transform:none}
+.fchip small{display:inline-block;min-width:1.2em;font-size:12.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;transition:color .2s ease}
 .fchip[aria-pressed="true"]{background:var(--blue);color:#fefefe;box-shadow:none}
 .fchip[aria-pressed="true"] small{color:rgba(255,255,255,.8)}
-.fseg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:4px;padding:4px;border-radius:16px;background:var(--tint)}
-.fseg button{min-height:44px;padding:6px 4px;border-radius:12px;font-weight:700;font-size:14px;line-height:1.15;color:var(--ink-2);text-align:center}
-.fseg button[aria-pressed="true"]{background:var(--surface);color:var(--blue-ink);box-shadow:var(--shadow)}
+.fseg{position:relative;isolation:isolate;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:4px;padding:4px;border-radius:16px;background:var(--tint)}
+/* the white pill that slides to the chosen option; columns are equal, so its width and offset follow from --n and --i */
+.fseg::before{content:"";position:absolute;z-index:-1;top:4px;bottom:4px;left:4px;width:calc((100% - 8px - (var(--n) - 1) * 4px) / var(--n));border-radius:12px;background:var(--surface);box-shadow:var(--shadow);transform:translateX(calc(var(--i) * (100% + 4px)))}
+.fseg button{min-height:44px;padding:6px 4px;border-radius:12px;font-weight:700;font-size:14px;line-height:1.15;color:var(--ink-2);text-align:center;transition:color .2s ease,transform .16s ease-out}
+.fseg button:active{transform:scale(.94)}
+.fseg button[aria-pressed="true"]{color:var(--blue-ink)}
+@media (forced-colors:active){.fseg::before{border:2px solid Highlight}}
 .fhint{margin:8px 2px 0;font-size:13px;color:var(--muted);line-height:1.35}
-.ftog{display:flex;align-items:center;gap:12px;width:100%;margin-top:10px;padding:12px 14px;border-radius:14px;background:var(--surface);box-shadow:var(--shadow);text-align:left}
+.ftog{display:flex;align-items:center;gap:12px;width:100%;margin-top:10px;padding:12px 14px;border-radius:14px;background:var(--surface);box-shadow:var(--shadow);text-align:left;transition:opacity .2s ease,transform .16s ease-out}
+.ftog:active{transform:scale(.985)}
+.ftog.zero{opacity:.5}
+.ftog small .fn{display:inline-block;font-variant-numeric:tabular-nums}
 .ftog b{display:block;font-size:15px;font-weight:700}
 .ftog small{display:block;font-size:13px;color:var(--muted);font-weight:500}
-.ftog .sw{position:relative;width:46px;height:28px;border-radius:999px;background:#d5dbe5;flex:none;transition:background .2s}
-.ftog .sw::after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s cubic-bezier(.16,1,.3,1)}
+.ftog .sw{position:relative;width:46px;height:28px;border-radius:999px;background:#d5dbe5;flex:none;transition:background-color .25s ease}
+.ftog .sw::after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.08)}
+/* like iOS: the knob stretches while you hold it */
+.ftog:active .sw::after{width:28px}
+.ftog[aria-pressed="true"]:active .sw::after{transform:translateX(12px)}
 .ftog[aria-pressed="true"] .sw{background:var(--blue)}
 .ftog[aria-pressed="true"] .sw::after{transform:translateX(18px)}
 .fs-foot{position:absolute;left:0;right:0;bottom:0;padding:12px var(--side-r) calc(12px + env(safe-area-inset-bottom,0px)) var(--side);background:linear-gradient(180deg,rgba(246,247,249,0) 0%,var(--bg) 30%)}
-.fs-foot .btn{width:100%;max-width:720px;margin:0 auto;display:flex;min-height:56px;font-size:17px;background:var(--blue);color:#fefefe;box-shadow:0 6px 18px rgba(29,91,216,.35)}
+.fs-foot .btn{width:100%;max-width:720px;margin:0 auto;display:flex;min-height:56px;font-size:17px;background:var(--blue);color:#fefefe;box-shadow:0 6px 18px rgba(29,91,216,.35);transition:background-color .25s ease,box-shadow .25s ease,transform .16s ease-out}
+.fs-foot .btn:active{transform:scale(.98)}
+.fs-foot .btn:disabled{background:#a9b3c3;box-shadow:none;opacity:1}
+.fs-foot .btn .gn{display:inline-block;min-width:1.3em;text-align:center;font-variant-numeric:tabular-nums}
 .fs-foot .btn:disabled{background:#aab4c5;box-shadow:none}
+
+/* ---------- filter window motion ---------- */
+.fs-grab{flex:none;width:40px;height:5px;margin:8px auto -2px;border-radius:999px;background:#cfd5df}
+.fsheet .fs-grab,.fsheet .sheet-top{touch-action:none;cursor:grab}
+.fsheet.drag{border-radius:22px 22px 0 0;box-shadow:0 -12px 40px rgba(23,32,51,.18);cursor:grabbing}
+.sortrow button{transition:background-color .22s ease,color .22s ease,box-shadow .22s ease,transform .16s ease-out}
+.sortrow button:active{transform:scale(.95)}
+.fbar{transition:transform .16s ease-out}
+.fbar .n .nv{font-variant-numeric:tabular-nums}
+.fbar.act .ic{box-shadow:0 0 0 4px var(--blue-soft)}
+@media (prefers-reduced-motion:no-preference){
+  /* window: rises on an iOS-like drawer curve, sections settle in one after another */
+  .fsheet{animation:fsUp .46s cubic-bezier(.32,.72,0,1)}
+  .fsheet.enter .fgrp{animation:fgIn .46s cubic-bezier(.23,1,.32,1) both;animation-delay:calc(70ms + var(--k,0) * 45ms)}
+  .fsheet.enter .fs-foot .btn{animation:fgIn .46s .16s cubic-bezier(.23,1,.32,1) both}
+  .fseg::before{transition:transform .34s cubic-bezier(.23,1,.32,1)}
+  .fchip .ck{transition:width .26s cubic-bezier(.23,1,.32,1),margin .26s cubic-bezier(.23,1,.32,1),opacity .18s ease,transform .34s cubic-bezier(.34,1.56,.64,1)}
+  .ftog .sw::after{transition:transform .34s cubic-bezier(.34,1.36,.64,1),width .2s cubic-bezier(.23,1,.32,1)}
+  .fsheet.drag{transition:border-radius .2s ease,box-shadow .2s ease}
+  /* Turkey list: rows fade up after filters or sorting change */
+  .trk.rin{animation:rowIn .42s cubic-bezier(.23,1,.32,1) both;animation-delay:calc(var(--d,0) * 35ms)}
+}
+@keyframes fsUp{from{transform:translateY(100%)}to{transform:none}}
+@keyframes fgIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes rowIn{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}

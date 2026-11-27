@@ -434,82 +434,190 @@ function fSummary(f) {
   if (f.price) out.push(`до ${f.price / 1000} тыс. €`);
   return out;
 }
+/* motion helpers: respect «reduce motion», count numbers smoothly, nudge a changed number */
+const RM = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function tween(el, from, to, paint, dur = 380) {
+  cancelAnimationFrame(el._raf);
+  if (from == null || from === to || RM()) { el._v = to; paint(to); return; }
+  const t0 = performance.now();
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+    el._v = Math.round(from + (to - from) * e); paint(el._v);
+    if (p < 1) el._raf = requestAnimationFrame(step);
+  };
+  el._raf = requestAnimationFrame(step);
+}
+function setNum(el, n, anim) {
+  const old = +el.textContent;
+  if (el.textContent === String(n)) return;
+  el.textContent = n;
+  if (anim && !RM() && el.animate) el.animate([{ opacity: 0, transform: `translateY(${n > old ? 7 : -7}px)` }, { opacity: 1, transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.23,1,.32,1)' });
+}
+/* list rows fade up one after another; only the first rows, so a long list never waits */
+function staggerRows(box, lead) {
+  if (!box || RM()) return;
+  [...box.children].slice(0, 10).forEach((c, i) => { c.style.setProperty('--d', i + (lead || 0)); c.classList.add('rin'); });
+}
 function renderTurkey() {
   const all = S.houses.filter(isTr);
   const list = trSort(housesIn('tr'), S.trf.sort);
   const left = me ? list.filter(h => !myVote(h.id)).length : list.length;
   const sum = fSummary(S.trf), act = trActive(S.trf);
+  const anim = S.trAnim; S.trAnim = null;
   $app.innerHTML = `<main class="pad">
     <div class="home-top">
       <button type="button" class="back-l" data-act="home">${ic('caret-left-bold', 's')}Страны</button>
       <button type="button" class="pill-btn" data-act="results" data-k="trall">${ic('trophy')}Итоги</button>
     </div>
     <header class="home-hd"><p>Турция, 12-25 июня 2027, ${C.people} человек</p><h1>Виллы в Турции</h1></header>
-    <button type="button" class="fbar" data-act="f-open">
+    <button type="button" class="fbar ${act ? 'act' : ''}" data-act="f-open">
       <span class="ic">${ic(act ? 'funnel-fill' : 'funnel', 'l')}</span>
       <span class="b"><b>Фильтры${act ? ` <i>${act}</i>` : ''}</b><small>${sum.length ? esc(sum.join(' · ')) : 'Регион, пляж, бассейн, гриль, оценка'}</small></span>
-      <span class="n">${list.length}<small>из ${all.length}</small></span>
+      <span class="n"><span class="nv">${list.length}</span><small>из ${all.length}</small></span>
     </button>
     <div class="sortrow">${TR_SORT.map(([k, l]) => `<button type="button" data-act="trsort" data-k="${k}" aria-pressed="${S.trf.sort === k}">${esc(l)}</button>`).join('')}</div>
     ${list.length ? `<button type="button" class="btn pri full go" data-act="cat" data-k="tr" ${left ? '' : 'disabled'}>${ic('hand-swipe-right')}${left ? `Оценивать подряд · ${left}` : 'Все виллы по фильтру оценены'}</button>` : ''}
-    <div class="rlist">${list.length ? list.map(trItem).join('') : `<div class="empty">По этим фильтрам вилл нет.<br><button type="button" class="btn" style="margin-top:12px" data-act="f-reset-all">Сбросить фильтры</button></div>`}</div>
+    <div class="rlist" id="trlist">${list.length ? list.map(trItem).join('') : `<div class="empty">По этим фильтрам вилл нет.<br><button type="button" class="btn" style="margin-top:12px" data-act="f-reset-all">Сбросить фильтры</button></div>`}</div>
   </main>`;
+  if (anim) {
+    const nv = $app.querySelector('.fbar .nv');
+    if (nv && anim.from != null) tween(nv, anim.from, list.length, v => { nv.textContent = v; }, 520);
+    if (anim.from != null && !RM()) { const fb = $app.querySelector('.fbar'); fb && fb.animate && fb.animate([{ transform: 'scale(.97)' }, { transform: 'scale(1.015)', offset: .55 }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.23,1,.32,1)' }); }
+    staggerRows(document.getElementById('trlist'), anim.lead);
+  }
 }
-/* filter window: changes go to a draft, the list updates when you press «Показать» */
+/* sorting re-orders the list in place: the pill slides its colour over, the rows fade in again */
+function sortTurkey(k) {
+  S.trf.sort = k; store.set('krit_trf', S.trf);
+  $app.querySelectorAll('.sortrow button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
+  const box = document.getElementById('trlist');
+  const list = trSort(housesIn('tr'), k);
+  if (box && list.length) { box.innerHTML = list.map(trItem).join(''); staggerRows(box, 0); }
+}
+/* filter window: changes go to a draft, the list updates when you press «Показать».
+   The window is built once when it opens; every tap after that changes only what changed, so it can animate. */
 const $fs = () => document.getElementById('fsheet');
 function fCount(f) { return S.houses.filter(h => isTr(h) && trMatch(h, f)).length; }
 function renderFilters() {
   const f = S.fdraft, all = S.houses.filter(isTr);
-  const without = k => Object.assign({}, f, { [k]: TRF0[k] });
-  const regCount = r => all.filter(h => h.reg === r && trMatch(h, without('reg'))).length;
-  const chip = (fld, v, label, n, on) => `<button type="button" class="fchip" data-act="f-set" data-f="${fld}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)}${n != null ? `<small>${n}</small>` : ''}</button>`;
-  const seg = (fld, opts) => `<div class="fseg">${opts.map(([v, l]) => `<button type="button" data-act="f-set" data-f="${fld}" data-v="${v}" aria-pressed="${String(f[fld]) === String(v)}">${esc(l)}</button>`).join('')}</div>`;
+  const chip = (fld, v, label, n) => `<button type="button" class="fchip" data-act="f-set" data-f="${fld}" data-v="${esc(v)}" aria-pressed="false"><span class="ck">${ic('check-bold', 's')}</span><span>${esc(label)}</span>${n ? '<small class="fn"></small>' : ''}</button>`;
+  const seg = (fld, opts) => {
+    const i = Math.max(0, opts.findIndex(([v]) => String(f[fld]) === String(v)));
+    return `<div class="fseg" style="--n:${opts.length};--i:${i}">${opts.map(([v, l]) => `<button type="button" data-act="f-set" data-f="${fld}" data-v="${v}" aria-pressed="false">${esc(l)}</button>`).join('')}</div>`;
+  };
   const regs = TR_SEAS.map(([title, sea]) => {
     const rs = [...new Set(all.filter(h => h.sea === sea).map(h => h.reg))].sort((a, b) => all.filter(h => h.reg === b).length - all.filter(h => h.reg === a).length);
-    return `<p class="fsub">${ic('waves', 's')}${title}</p><div class="fchips">${rs.map(r => chip('reg', r, r, regCount(r), f.reg.includes(r))).join('')}</div>`;
+    return `<p class="fsub">${ic('waves', 's')}${title}</p><div class="fchips">${rs.map(r => chip('reg', r, r, true)).join('')}</div>`;
   }).join('');
-  const nWhite = all.filter(h => h.white && trMatch(h, without('white'))).length;
-  const n = fCount(f);
-  document.getElementById('fs-body').innerHTML = `
-    <section class="fgrp"><h3>${ic('map-pin-area')}Регион</h3>${regs}</section>
-    <section class="fgrp"><h3>${ic('footprints')}До моря пешком</h3>${seg('walk', [[0, 'Любое'], [5, 'до 5 мин'], [10, 'до 10 мин'], [15, 'до 15 мин']])}<p class="fhint">Во всех виллах пляж не дальше 20 минут пешком.</p></section>
-    <section class="fgrp"><h3>${ic('umbrella-simple')}Пляж</h3><div class="fchips">${TR_BEACH.map(([k, l]) => chip('beach', k, l, all.filter(h => h.btype === k && trMatch(h, without('beach'))).length, f.beach.includes(k))).join('')}</div>
-      <button type="button" class="ftog" data-act="f-set" data-f="white" data-v="1" aria-pressed="${f.white}"><span class="sw"></span><span><b>Только белый песок</b><small>Ылыджа в Чешме, вилл: ${nWhite}</small></span></button></section>
-    <section class="fgrp"><h3>${ic('swimming-pool')}Бассейн</h3>${seg('pool', [['any', 'Любой'], ['own', 'Только свой']])}</section>
-    <section class="fgrp"><h3>${ic('fire')}Гриль</h3>${seg('grill', [['any', 'Любой'], ['coal', 'На углях, как мангал']])}<p class="fhint">Гриль есть во всех виллах. «На углях» хозяин указал сам, у остальных тип не указан.</p></section>
-    <section class="fgrp"><h3>${ic('sparkle-fill')}Оценка Claude: ремонт и цена</h3>${seg('cl', [[0, 'Любая'], [5, '5+'], [6, '6+'], [7, '7+'], [8, '8+'], [9, '9']])}<p class="fhint">По фото: свежий светлый ремонт, просторные спальни и красивые ванные, с учётом цены.</p></section>
-    <section class="fgrp"><h3>${ic('wallet')}Цена за ${C.nights} ночей</h3>${seg('price', [[0, 'Любая'], [3000, 'до 3 тыс. €'], [4000, 'до 4 тыс. €'], [5000, 'до 5 тыс. €']])}</section>
-    <section class="fgrp"><h3>${ic('bathtub')}Ещё</h3><button type="button" class="ftog" data-act="f-set" data-f="jac" data-v="1" aria-pressed="${f.jac}"><span class="sw"></span><span><b>Есть джакузи</b><small>в доме или во дворе</small></span></button></section>
-    <section class="fgrp"><h3>${ic('sort-descending')}Сортировка</h3>${seg('sort', TR_SORT)}</section>`;
-  const go = document.getElementById('fs-go');
-  go.innerHTML = n ? `Показать ${n} ${plural(n, 'виллу', 'виллы', 'вилл')}` : 'Ничего не найдено';
+  const sec = (k, html) => `<section class="fgrp" style="--k:${Math.min(k, 5)}">${html}</section>`;
+  document.getElementById('fs-body').innerHTML = [
+    `<h3>${ic('map-pin-area')}Регион</h3>${regs}`,
+    `<h3>${ic('footprints')}До моря пешком</h3>${seg('walk', [[0, 'Любое'], [5, 'до 5 мин'], [10, 'до 10 мин'], [15, 'до 15 мин']])}<p class="fhint">Во всех виллах пляж не дальше 20 минут пешком.</p>`,
+    `<h3>${ic('umbrella-simple')}Пляж</h3><div class="fchips">${TR_BEACH.map(([k, l]) => chip('beach', k, l, true)).join('')}</div>
+      <button type="button" class="ftog" data-act="f-set" data-f="white" data-v="1" aria-pressed="false"><span class="sw"></span><span><b>Только белый песок</b><small>Ылыджа в Чешме, вилл: <span class="fn" id="fs-nwhite"></span></small></span></button>`,
+    `<h3>${ic('swimming-pool')}Бассейн</h3>${seg('pool', [['any', 'Любой'], ['own', 'Только свой']])}`,
+    `<h3>${ic('fire')}Гриль</h3>${seg('grill', [['any', 'Любой'], ['coal', 'На углях, как мангал']])}<p class="fhint">Гриль есть во всех виллах. «На углях» хозяин указал сам, у остальных тип не указан.</p>`,
+    `<h3>${ic('sparkle-fill')}Оценка Claude: ремонт и цена</h3>${seg('cl', [[0, 'Любая'], [5, '5+'], [6, '6+'], [7, '7+'], [8, '8+'], [9, '9']])}<p class="fhint">По фото: свежий светлый ремонт, просторные спальни и красивые ванные, с учётом цены.</p>`,
+    `<h3>${ic('wallet')}Цена за ${C.nights} ночей</h3>${seg('price', [[0, 'Любая'], [3000, 'до 3 тыс. €'], [4000, 'до 4 тыс. €'], [5000, 'до 5 тыс. €']])}`,
+    `<h3>${ic('bathtub')}Ещё</h3><button type="button" class="ftog" data-act="f-set" data-f="jac" data-v="1" aria-pressed="false"><span class="sw"></span><span><b>Есть джакузи</b><small>в доме или во дворе</small></span></button>`,
+    `<h3>${ic('sort-descending')}Сортировка</h3>${seg('sort', TR_SORT)}`
+  ].map((h, k) => sec(k, h)).join('');
+  document.getElementById('fs-go')._v = null;
+  syncFilters(false);
+}
+/* bring every control in line with the draft: pressed states, the sliding pill, counts and the button */
+function syncFilters(anim) {
+  const f = S.fdraft, body = document.getElementById('fs-body'); if (!f || !body) return;
+  const all = S.houses.filter(isTr);
+  const without = k => Object.assign({}, f, { [k]: TRF0[k] });
+  const pool = { reg: all.filter(h => trMatch(h, without('reg'))), beach: all.filter(h => trMatch(h, without('beach'))) };
+  body.querySelectorAll('[data-act="f-set"]').forEach(b => {
+    const fld = b.dataset.f, v = b.dataset.v;
+    const on = Array.isArray(f[fld]) ? f[fld].includes(v) : (fld === 'white' || fld === 'jac') ? !!f[fld] : String(f[fld]) === v;
+    if (b.getAttribute('aria-pressed') !== String(on)) b.setAttribute('aria-pressed', String(on));
+    const nEl = b.classList.contains('fchip') && b.querySelector('.fn');
+    if (nEl) {
+      const n = pool[fld].filter(h => (fld === 'reg' ? h.reg : h.btype) === v).length;
+      setNum(nEl, n, anim); b.classList.toggle('zero', !n && !on);
+    }
+  });
+  body.querySelectorAll('.fseg').forEach(sg => {
+    const i = [...sg.children].findIndex(b => b.getAttribute('aria-pressed') === 'true');
+    sg.style.setProperty('--i', Math.max(0, i));
+  });
+  const nW = all.filter(h => h.white && trMatch(h, without('white'))).length, wEl = document.getElementById('fs-nwhite');
+  if (wEl) { setNum(wEl, nW, anim); wEl.closest('.ftog').classList.toggle('zero', !nW && !f.white); }
+  const n = fCount(f), go = document.getElementById('fs-go'), was = go._v;
   go.disabled = !n;
-  document.getElementById('fs-reset').hidden = !trActive(f);
+  if (!n) { cancelAnimationFrame(go._raf); go._v = 0; go.textContent = 'Ничего не найдено'; }
+  else tween(go, was ? was : (anim ? 0 : null), n, v => { go.innerHTML = `<span>Показать <span class="gn">${v}</span> ${plural(n, 'виллу', 'виллы', 'вилл')}</span>`; });
+  if (anim && !n !== !was && !RM() && go.animate) go.animate([{ opacity: .35, filter: 'blur(2px)' }, { opacity: 1, filter: 'none' }], { duration: 240, easing: 'ease-out' });
+  const rs = document.getElementById('fs-reset'), act = !!trActive(f);
+  rs.classList.toggle('on', act); rs.tabIndex = act ? 0 : -1; rs.setAttribute('aria-hidden', String(!act));
 }
 function openFilters() {
+  clearTimeout(S.fsT); clearTimeout(S.fsE);
   S.fdraft = JSON.parse(JSON.stringify(S.trf));
   document.getElementById('fs-x').innerHTML = ic('x-bold', 'l');
   renderFilters();
-  const el = $fs(); el.hidden = false; el.classList.remove('out'); document.body.style.overflow = 'hidden';
+  const el = $fs(); el.style.cssText = ''; el.classList.remove('out'); el.classList.add('enter');
+  el.hidden = false; document.body.style.overflow = 'hidden';
   document.getElementById('fs-body').scrollTop = 0;
+  S.fsE = setTimeout(() => el.classList.remove('enter'), 900);
   syncBack(); haptic();
 }
+/* the window slides down from wherever it is (also from half way, after a drag) */
 function closeFilters() {
-  const el = $fs(); if (!el || el.hidden) return;
-  el.classList.add('out');
-  setTimeout(() => { el.hidden = true; el.classList.remove('out'); S.fdraft = null; document.body.style.overflow = ''; syncBack(); }, 220);
+  const el = $fs(); if (!el || el.hidden || el.classList.contains('out')) return;
+  clearTimeout(S.fsE);
+  el.classList.add('out'); el.classList.remove('enter', 'drag');
+  el.style.animation = 'none';
+  el.style.transition = 'transform .28s cubic-bezier(.32,.72,0,1)';
+  requestAnimationFrame(() => { el.style.transform = 'translateY(100%)'; });
+  S.fsT = setTimeout(() => { el.hidden = true; el.classList.remove('out'); el.style.cssText = ''; S.fdraft = null; document.body.style.overflow = ''; syncBack(); }, 300);
 }
 function setFilter(fld, v) {
-  const f = S.fdraft;
+  const f = S.fdraft; if (!f) return;
   if (fld === 'reg' || fld === 'beach') { const i = f[fld].indexOf(v); if (i >= 0) f[fld].splice(i, 1); else f[fld].push(v); }
   else if (fld === 'white' || fld === 'jac') f[fld] = !f[fld];
   else if (fld === 'walk' || fld === 'cl' || fld === 'price') f[fld] = +v;
   else f[fld] = v;
-  const y = document.getElementById('fs-body').scrollTop; renderFilters(); document.getElementById('fs-body').scrollTop = y; haptic();
+  syncFilters(true); haptic();
+}
+function resetDraft() {
+  if (!S.fdraft) return;
+  S.fdraft = JSON.parse(JSON.stringify(Object.assign({}, TRF0, { sort: S.fdraft.sort })));
+  syncFilters(true); haptic('hit');
 }
 function applyFilters() {
+  const from = S.view === 'turkey' ? housesIn('tr').length : null;
   S.trf = S.fdraft; store.set('krit_trf', S.trf); closeFilters();
-  if (S.view === 'turkey') { window.scrollTo(0, 0); renderTurkey(); }
+  if (S.view === 'turkey') { window.scrollTo(0, 0); S.trAnim = { from, lead: 3 }; renderTurkey(); }
+}
+/* pull the window down by its top bar to close it; a quick flick is enough */
+function bindFilterDrag() {
+  const el = $fs(); if (!el || el._drag) return; el._drag = true;
+  let y0 = 0, t0 = 0, dy = 0, pid = null;
+  el.addEventListener('pointerdown', e => {
+    if (pid != null || el.classList.contains('out') || !e.target.closest('.fs-grab, .sheet-top') || e.target.closest('button')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pid = e.pointerId; y0 = e.clientY; t0 = performance.now(); dy = 0;
+    try { el.setPointerCapture(pid); } catch (err) { /* old webview */ }
+    el.style.animation = 'none'; el.style.transition = 'none'; el.classList.add('drag');
+  });
+  el.addEventListener('pointermove', e => {
+    if (e.pointerId !== pid) return;
+    dy = Math.max(0, e.clientY - y0);
+    el.style.transform = `translateY(${dy}px)`;
+  });
+  const end = e => {
+    if (e.pointerId !== pid) return; pid = null;
+    const v = dy / Math.max(1, performance.now() - t0);
+    if (dy > Math.min(160, innerHeight * .22) || (v > .3 && dy > 30)) { haptic(); closeFilters(); return; }
+    el.classList.remove('drag');
+    el.style.transition = 'transform .36s cubic-bezier(.32,.72,0,1)'; el.style.transform = '';
+  };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
 }
 
 /* ---------- render: house (deck card or detail) ---------- */
@@ -967,10 +1075,10 @@ document.addEventListener('click', e => {
     case 'f-open': openFilters(); return;
     case 'f-close': closeFilters(); return;
     case 'f-set': setFilter(el.dataset.f, el.dataset.v); return;
-    case 'f-reset': S.fdraft = JSON.parse(JSON.stringify(Object.assign({}, TRF0, { sort: S.fdraft.sort }))); renderFilters(); haptic(); return;
-    case 'f-reset-all': S.trf = Object.assign({}, TRF0, { sort: S.trf.sort }); store.set('krit_trf', S.trf); renderTurkey(); return;
+    case 'f-reset': resetDraft(); return;
+    case 'f-reset-all': S.trf = Object.assign({}, TRF0, { sort: S.trf.sort }); store.set('krit_trf', S.trf); S.trAnim = { from: 0 }; haptic('hit'); renderTurkey(); return;
     case 'f-apply': haptic('ok'); applyFilters(); return;
-    case 'trsort': S.trf.sort = el.dataset.k; store.set('krit_trf', S.trf); haptic(); renderTurkey(); return;
+    case 'trsort': if (S.trf.sort !== el.dataset.k) { haptic(); sortTurkey(el.dataset.k); } return;
     case 'rcat': S.rcat = el.dataset.k; S.rq = ''; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
     case 'rest': S.showRest = true; { const box = document.getElementById('rres'); if (box) box.innerHTML = resultsBody(); else renderResults(); } return;
     case 'rqclear': { onSearch(''); const inp = document.getElementById('rq'); if (inp) { inp.value = ''; inp.focus(); } haptic(); } return;
@@ -1014,7 +1122,7 @@ async function boot() {
     try { tg.ready(); tg.expand(); if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) { /* old client */ }
     tg.BackButton && tg.BackButton.onClick(goBack);
   }
-  paintChrome(); watchBar();
+  paintChrome(); watchBar(); bindFilterDrag();
   try {
     const [cr, trl] = await Promise.all([
       fetch('data/houses.json?v=8').then(r => r.json()),
