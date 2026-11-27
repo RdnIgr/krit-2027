@@ -78,7 +78,7 @@ const EXTRA = {
 };
 
 /* ---------- state ---------- */
-const S = { houses: [], byId: {}, votes: [], sig: '', view: 'home', cat: 'near', rcat: store.get('krit_rcat', 'near'),
+const S = { houses: [], byId: {}, votes: [], sig: '', view: 'home', cat: 'near', rcat: store.get('krit_rcat', 'near'), rq: '',
   queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false, full: {}, sheet: null };
 
 // photo entry: [cat, url, thumb, label, mid]; local paths, Airbnb and Booking urls are handled differently
@@ -452,13 +452,22 @@ function renderDone() {
 function preloadNext() { const n = S.queue[0]; if (!n) return; const h = S.byId[n]; const im = new Image(); im.referrerPolicy = 'no-referrer'; im.src = psrc(photosOf(h)[0], 'm'); }
 
 /* ---------- render: results ---------- */
-function renderResults() {
-  const ppl = {}; S.votes.forEach(v => { (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
-  const people = Object.values(ppl).sort((a, b) => b.n - a.n);
-  const list = housesIn(CATS[S.rcat] ? S.rcat : 'near').map(h => ({ h, t: tally(h.id) }))
-    .sort((a, b) => b.t.score - a.t.score || b.t.yes - a.t.yes || a.t.no - b.t.no || b.t.all - a.t.all || a.h.id - b.h.id);
-  const voted = list.filter(x => x.t.all), rest = list.filter(x => !x.t.all);
-  const item = ({ h, t }, i) => `<button type="button" class="rk" data-act="open" data-id="${h.id}">
+/* search by name or place: Russian letters are transliterated, so "вилла" finds "Villa" and "ханья" finds "Chania" */
+const TRANSLIT = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sh', ъ: '', ы: 'i', ь: '', э: 'e', ю: 'iu', я: 'ia' };
+const plainText = s => String(s || '').toLowerCase().replace(/ё/g, 'е');
+const skel = s => plainText(s).replace(/[а-я]/g, c => TRANSLIT[c] ?? c)
+  .replace(/ph/g, 'f').replace(/th/g, 't').replace(/[cq]/g, 'k').replace(/x/g, 'ks').replace(/kh/g, 'h').replace(/[yj]/g, 'i').replace(/w/g, 'v')
+  .replace(/[^a-z0-9]+/g, ' ').replace(/([a-z])\1+/g, '$1').trim();
+function matchesQuery(h, q) {
+  const hay = `${h.name} ${h.city} ${h.beach || ''}`;
+  if (plainText(hay).includes(plainText(q).trim())) return true;
+  /* fuzzy match only on words of 2+ letters, so a single stray letter does not light up half the list */
+  const sk = skel(hay), words = skel(q).split(' ').filter(w => w.length >= 2);
+  return words.length > 0 && words.every(w => sk.includes(w));
+}
+const byScore = (a, b) => b.t.score - a.t.score || b.t.yes - a.t.yes || a.t.no - b.t.no || b.t.all - a.t.all || a.h.id - b.h.id;
+function resultItem({ h, t }, i) {
+  return `<button type="button" class="rk" data-act="open" data-id="${h.id}">
       <span class="n ${i < 3 && t.score > 0 ? 'top' : ''}">${i === 0 && t.score > 0 ? ic('crown-fill', 'l') : i + 1}</span>
       <span class="th">${img(heroOf(h), 't')}</span>
       <span class="b"><b>${esc(h.name)}</b><small>${h.walk.cross ? 'пляж через дорогу' : tm(h.walk.min) + (h.walk.to === 'sea' ? ' до моря' : ' до пляжа')}, ${nf(h.price)}\u00a0€</small>
@@ -466,17 +475,44 @@ function renderResults() {
       </span>
       ${t.all ? `<span class="vs">${t.vs.slice().sort((a, b) => b.vote - a.vote).map(v => `<span class="tag ${VOTE[v.vote].k}">${ic(VOTE[v.vote].icon, 's')}${esc(v.user_name.split(' ')[0])}</span>`).join('')}</span>` : ''}
     </button>`;
+}
+/* the list under the search box: a category ranking, or search hits across all houses with their overall place */
+function resultsBody() {
+  const q = (S.rq || '').trim();
+  if (q) {
+    const all = S.houses.map(h => ({ h, t: tally(h.id) })).sort(byScore);
+    const hits = all.map((x, i) => [x, i]).filter(([x]) => matchesQuery(x.h, q));
+    if (!hits.length) return `<div class="empty rnone">${ic('magnifying-glass', 'l')}<b>Ничего не нашлось</b><span>По запросу «${esc(q)}» домов нет. Проверь название или попробуй часть слова.</span></div>`;
+    return `<p class="rnote">Найдено ${hits.length} ${plural(hits.length, 'дом', 'дома', 'домов')} среди всех ${S.houses.length}. Номер слева: место дома в общем рейтинге.</p>
+      <div class="rlist">${hits.map(([x, i]) => resultItem(x, i)).join('')}</div>`;
+  }
+  const list = housesIn(CATS[S.rcat] ? S.rcat : 'near').map(h => ({ h, t: tally(h.id) })).sort(byScore);
+  const voted = list.filter(x => x.t.all), rest = list.filter(x => !x.t.all);
+  return `<div class="rlist">
+      ${voted.length ? voted.map(resultItem).join('') : `<div class="empty">В этой категории ещё никто не голосовал</div>`}
+    </div>
+    ${rest.length ? (S.showRest ? `<div class="rlist">${rest.map((x, i) => resultItem(x, voted.length + i)).join('')}</div>` : `<button type="button" class="btn full more" style="width:100%" data-act="rest">Дома без голосов: ${rest.length}</button>`) : ''}`;
+}
+function renderResults() {
+  const ppl = {}; S.votes.forEach(v => { (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
+  const people = Object.values(ppl).sort((a, b) => b.n - a.n);
+  const q = S.rq || '';
   $app.innerHTML = `<main class="pad">
     <header class="rh"><h1>Итоги</h1><p>Место дома: сколько «нравится» минус сколько «не нравится».</p></header>
-    <div class="rchips">
-      ${CAT_KEYS.map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : ''}${CATS[k].short}</button>`).join('')}
+    <label class="rsearch">${ic('magnifying-glass')}<input id="rq" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Найти дом по названию или месту" aria-label="Поиск дома по названию или месту" value="${esc(q)}"><button type="button" class="rclr" data-act="rqclear" aria-label="Очистить поиск" ${q ? '' : 'hidden'}>${ic('x-bold', 's')}</button></label>
+    <div class="rchips ${q.trim() ? 'off' : ''}">
+      ${CAT_KEYS.map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q.trim() && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : ''}${CATS[k].short}</button>`).join('')}
     </div>
     ${people.length ? `<div class="ppl">${people.map(p => `<span>${ava(p.u, 's')}${esc(p.u.user_name)} <small>${p.n}</small></span>`).join('')}</div>` : ''}
-    <div class="rlist">
-      ${voted.length ? voted.map(item).join('') : `<div class="empty">В этой категории ещё никто не голосовал</div>`}
-    </div>
-    ${rest.length ? (S.showRest ? `<div class="rlist">${rest.map((x, i) => item(x, voted.length + i)).join('')}</div>` : `<button type="button" class="btn full more" style="width:100%" data-act="rest">Дома без голосов: ${rest.length}</button>`) : ''}
+    <div id="rres">${resultsBody()}</div>
   </main>`;
+}
+function onSearch(v) {
+  S.rq = v;
+  const box = document.getElementById('rres'); if (box) box.innerHTML = resultsBody();
+  const clr = $app.querySelector('.rclr'); if (clr) clr.hidden = !v;
+  const chips = $app.querySelector('.rchips');
+  if (chips) { chips.classList.toggle('off', !!v.trim()); chips.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(!v.trim() && S.rcat === b.dataset.k))); }
 }
 
 /* ---------- photo carousel: native swipe, voting only by buttons ---------- */
@@ -613,6 +649,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') stepViewer(1); else if (e.key === 'ArrowLeft') stepViewer(-1); else if (e.key === 'Escape') closeViewer();
 });
 $track.addEventListener('scroll', () => requestAnimationFrame(updCap), { passive: true });
+/* search in the results: filter as you type, Enter just hides the keyboard */
+document.addEventListener('input', e => { if (e.target && e.target.id === 'rq') onSearch(e.target.value); });
+document.addEventListener('keydown', e => { if (e.target && e.target.id === 'rq' && e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
 
 /* ---------- routing ---------- */
 function route() {
@@ -699,8 +738,9 @@ document.addEventListener('click', e => {
       } else { S.zoomIn = true; setTimeout(() => { location.hash = 'h-' + id; }, 140); }
       return;
     }
-    case 'rcat': S.rcat = el.dataset.k; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
-    case 'rest': S.showRest = true; renderResults(); return;
+    case 'rcat': S.rcat = el.dataset.k; S.rq = ''; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
+    case 'rest': S.showRest = true; { const box = document.getElementById('rres'); if (box) box.innerHTML = resultsBody(); else renderResults(); } return;
+    case 'rqclear': { onSearch(''); const inp = document.getElementById('rq'); if (inp) { inp.value = ''; inp.focus(); } haptic(); } return;
   }
 });
 window.addEventListener('hashchange', () => {
@@ -722,7 +762,12 @@ function watchBar() {
 async function refresh() {
   try {
     if (!(await loadVotes())) return;
-    if (S.view === 'results') { const y = window.scrollY; renderResults(); window.scrollTo(0, y); }
+    if (S.view === 'results') {
+      const y = window.scrollY, box = document.getElementById('rres');
+      /* keep the keyboard open while someone is typing in the search box */
+      if (box && document.activeElement && document.activeElement.id === 'rq') box.innerHTML = resultsBody(); else renderResults();
+      window.scrollTo(0, y);
+    }
     else if (S.view === 'home') renderHome();
   } catch (e) { /* offline: keep old data */ }
 }
