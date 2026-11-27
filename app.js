@@ -192,9 +192,9 @@ async function sendVote(id, vote, comment) {
   else S.votes.push({ house_id: id, user_id: me.id, user_name: me.name, username: me.username, photo_url: me.photo, vote, comment: comment || null });
   try {
     const r = await api('rpc/cast_vote', { method: 'POST', body: JSON.stringify({ p_house: id, p_user: me.id, p_name: me.name, p_username: me.username, p_photo: me.photo, p_vote: vote, p_comment: comment || null }) });
-    if (!r.ok) throw new Error(r.status);
+    if (!r.ok) { const er = new Error(r.status); er.server = true; throw er; }
     return true;
-  } catch (e) { S.votes = prev; haptic('err'); toast('Не сохранилось. Проверь интернет и попробуй ещё раз'); return false; }
+  } catch (e) { S.votes = prev; haptic('err'); toast(e.server ? 'Голос не сохранился: база его не приняла. Попробуй ещё раз чуть позже' : 'Не сохранилось. Проверь интернет и попробуй ещё раз'); return false; }
 }
 async function dropVote(id) {
   const prev = S.votes.slice(); S.votes = S.votes.filter(v => !(v.house_id === id && v.user_id === me.id));
