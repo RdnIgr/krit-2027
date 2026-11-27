@@ -64,6 +64,20 @@ const CATS = {
 };
 const CAT_KEYS = ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'trall'];
 const isTr = h => h.country === 'tr';
+/* results are kept apart by country: Crete has its own categories, Turkey has all villas or the villas left by your filters */
+const R_KEYS = { cr: ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all'], tr: ['trall', 'tr'] };
+const R_LABEL = { trall: 'Все виллы', tr: 'По моим фильтрам' };
+const rCountry = k => (k === 'tr' || k === 'trall' ? 'tr' : 'cr');
+function setRcat(k) {
+  S.rcat = k; S.showRest = false;
+  store.set('krit_rcat', k); store.set(rCountry(k) === 'tr' ? 'krit_rcat_tr' : 'krit_rcat_cr', k);
+}
+function rcatFor(c) {
+  const last = store.get(c === 'tr' ? 'krit_rcat_tr' : 'krit_rcat_cr', null);
+  if (last && R_KEYS[c].includes(last)) return last;
+  const cur = store.get('krit_rcat', null);
+  return cur && R_KEYS[c].includes(cur) ? cur : R_KEYS[c][c === 'tr' ? 0 : 1];
+}
 /* Turkey filters: what the filter window can choose, and the defaults (nothing chosen = no limit) */
 const TRF0 = { reg: [], walk: 0, beach: [], white: false, pool: 'any', grill: 'any', jac: false, cl: 0, price: 0, sort: 'cl' };
 const TR_SEAS = [['Средиземное море', 'med'], ['Эгейское море', 'aeg']];
@@ -342,7 +356,7 @@ function renderHome() {
   </main>`;
 }
 function renderCrete() {
-  const people = new Set(S.votes.map(v => v.user_id)).size;
+  const people = new Set(S.votes.filter(v => S.byId[v.house_id] && !isTr(S.byId[v.house_id])).map(v => v.user_id)).size;
   const st = k => {
     const n = housesIn(k).length, mine = myCount(k);
     const txt = !me || !mine ? `${n} ${plural(n, 'дом', 'дома', 'домов')}` : mine >= n ? `${ic('check-bold', 's')}готово` : `ещё ${n - mine} из ${n}`;
@@ -377,7 +391,7 @@ function renderCrete() {
   $app.innerHTML = `<main class="pad">
     <div class="home-top">
       <div class="who">${me ? ava(me) + `<b>Привет, ${esc(me.name.split(' ')[0])}</b>` : ''}</div>
-      <button type="button" class="pill-btn" data-act="results">${ic('trophy')}Итоги</button>
+      <button type="button" class="pill-btn" data-act="results" data-ctry="cr">${ic('trophy')}Итоги</button>
     </div>
     <button type="button" class="back-l" data-act="home">${ic('caret-left-bold', 's')}Страны</button>
     <header class="home-hd"><p>Крит, 12-25 июня 2027, ${C.people} человек</p><h1>Выбери категорию</h1></header>
@@ -394,7 +408,7 @@ function renderCrete() {
       <div><span class="yes">${ic('heart-fill', 'l')}</span>Нравится</div>
     </div>
     <p class="how-t">Оценку ставишь кнопкой вверху карточки. Фото листаются свайпом.</p>
-    <button type="button" class="row-link" data-act="results"><span class="ic">${ic('trophy', 'l')}</span><div><b>Итоги голосования</b><small>${people ? `Голосуют ${people} ${plural(people, 'человек', 'человека', 'человек')}` : 'Пока никто не голосовал'}</small></div>${ic('caret-right')}</button>
+    <button type="button" class="row-link" data-act="results" data-ctry="cr"><span class="ic">${ic('trophy', 'l')}</span><div><b>Итоги голосования</b><small>${people ? `Голосуют ${people} ${plural(people, 'человек', 'человека', 'человек')}` : 'Пока никто не голосовал'}</small></div>${ic('caret-right')}</button>
     ${me ? '' : `<div class="note-tg">Голосовать можно только из Telegram: открой бота @${esc(C.bot)}. Здесь можно просто посмотреть дома.</div>`}
   </main>`;
 }
@@ -792,42 +806,68 @@ function resultItem({ h, t }, i) {
   return `<button type="button" class="rk" data-act="open" data-id="${h.id}">
       <span class="n ${i < 3 && t.score > 0 ? 'top' : ''}">${i === 0 && t.score > 0 ? ic('crown-fill', 'l') : i + 1}</span>
       <span class="th">${img(heroOf(h), 't')}</span>
-      <span class="b"><b>${esc(h.name)}</b><small>${h.walk.cross ? 'пляж через дорогу' : tm(h.walk.min) + (h.walk.to === 'sea' ? ' до моря' : ' до пляжа')}, ${nf(h.price)}\u00a0€</small>
+      <span class="b"><b>${esc(h.name)}</b><small>${isTr(h) ? esc(h.city) + ', ' : ''}${h.walk.cross ? 'пляж через дорогу' : tm(h.walk.min) + (h.walk.to === 'sea' ? ' до моря' : ' до пляжа')}, ${nf(h.price)}\u00a0€</small>
         ${t.all ? `<span class="cnt"><span class="yes">${ic('heart-fill', 's')}${t.yes}</span><span class="mb">${ic('question-bold', 's')}${t.mb}</span><span class="no">${ic('x-bold', 's')}${t.no}</span><span class="sc">${t.score > 0 ? '+' : ''}${t.score}</span></span>` : `<small>Голосов пока нет</small>`}
       </span>
       ${t.all ? `<span class="vs">${t.vs.slice().sort((a, b) => b.vote - a.vote).map(v => `<span class="tag ${VOTE[v.vote].k}">${ic(VOTE[v.vote].icon, 's')}${esc(v.user_name.split(' ')[0])}</span>`).join('')}</span>` : ''}
     </button>`;
 }
-/* the list under the search box: a category ranking, or search hits across all houses with their overall place */
+/* the list under the search box: a category ranking, or search hits among this country's houses with their place there */
 function resultsBody() {
-  const q = (S.rq || '').trim();
+  const q = (S.rq || '').trim(), c = rCountry(S.rcat), tr = c === 'tr';
   if (q) {
-    const all = S.houses.map(h => ({ h, t: tally(h.id) })).sort(byScore);
+    const pool = S.houses.filter(h => isTr(h) === tr);
+    const all = pool.map(h => ({ h, t: tally(h.id) })).sort(byScore);
     const hits = all.map((x, i) => [x, i]).filter(([x]) => matchesQuery(x.h, q));
-    if (!hits.length) return `<div class="empty rnone">${ic('magnifying-glass', 'l')}<b>Ничего не нашлось</b><span>По запросу «${esc(q)}» домов нет. Проверь название или попробуй часть слова.</span></div>`;
-    return `<p class="rnote">Найдено ${hits.length} ${plural(hits.length, 'дом', 'дома', 'домов')} среди всех ${S.houses.length}. Номер слева: место дома в общем рейтинге.</p>
+    if (!hits.length) return `<div class="empty rnone">${ic('magnifying-glass', 'l')}<b>Ничего не нашлось</b><span>По запросу «${esc(q)}» ${tr ? 'в Турции вилл' : 'на Крите домов'} нет. Проверь название или попробуй часть слова.</span></div>`;
+    return `<p class="rnote">Найдено ${hits.length} среди ${tr ? `${pool.length} вилл в Турции` : `${pool.length} домов на Крите`}. Номер слева: место в общем рейтинге ${tr ? 'Турции' : 'Крита'}.</p>
       <div class="rlist">${hits.map(([x, i]) => resultItem(x, i)).join('')}</div>`;
   }
-  const list = housesIn(CATS[S.rcat] ? S.rcat : 'near').map(h => ({ h, t: tally(h.id) })).sort(byScore);
+  const list = housesIn(R_KEYS[c].includes(S.rcat) ? S.rcat : R_KEYS[c][0]).map(h => ({ h, t: tally(h.id) })).sort(byScore);
   const voted = list.filter(x => x.t.all), rest = list.filter(x => !x.t.all);
+  const none = S.rcat === 'tr' && !list.length ? 'По твоим фильтрам вилл нет. Поменяй фильтры на экране Турции.' : `${tr ? 'Среди этих вилл' : 'В этой категории'} ещё никто не голосовал`;
   return `<div class="rlist">
-      ${voted.length ? voted.map(resultItem).join('') : `<div class="empty">В этой категории ещё никто не голосовал</div>`}
+      ${voted.length ? voted.map(resultItem).join('') : `<div class="empty">${none}</div>`}
     </div>
-    ${rest.length ? (S.showRest ? `<div class="rlist">${rest.map((x, i) => resultItem(x, voted.length + i)).join('')}</div>` : `<button type="button" class="btn full more" style="width:100%" data-act="rest">Дома без голосов: ${rest.length}</button>`) : ''}`;
+    ${rest.length ? (S.showRest ? `<div class="rlist">${rest.map((x, i) => resultItem(x, voted.length + i)).join('')}</div>` : `<button type="button" class="btn full more" style="width:100%" data-act="rest">${tr ? 'Виллы' : 'Дома'} без голосов: ${rest.length}</button>`) : ''}`;
+}
+/* category chips and who voted how much, both for the chosen country only */
+function resultsMid() {
+  const c = rCountry(S.rcat), tr = c === 'tr', q = (S.rq || '').trim();
+  const ppl = {};
+  S.votes.forEach(v => { const h = S.byId[v.house_id]; if (!h || isTr(h) !== tr) return; (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
+  const people = Object.values(ppl).sort((a, b) => b.n - a.n);
+  return `<div class="rchips ${q ? 'off' : ''}">
+      ${R_KEYS[c].map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : k === 'tr' ? ic('funnel', 's') : ''}${R_LABEL[k] || CATS[k].short}</button>`).join('')}
+    </div>
+    ${people.length ? `<div class="ppl">${people.map(p => `<span>${ava(p.u, 's')}${esc(p.u.user_name)} <small>${p.n}</small></span>`).join('')}</div>` : `<p class="rnote">${tr ? 'За виллы в Турции' : 'За дома на Крите'} пока никто не голосовал.</p>`}`;
 }
 function renderResults() {
-  const ppl = {}; S.votes.forEach(v => { (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
-  const people = Object.values(ppl).sort((a, b) => b.n - a.n);
-  const q = S.rq || '';
+  const q = S.rq || '', c = rCountry(S.rcat);
+  const nCr = S.houses.filter(h => !isTr(h)).length, nTr = S.houses.length - nCr;
   $app.innerHTML = `<main class="pad">
     <header class="rh"><h1>Итоги</h1><p>Место дома: сколько «нравится» минус сколько «не нравится».</p></header>
-    <label class="rsearch">${ic('magnifying-glass')}<input id="rq" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Найти дом по названию или месту" aria-label="Поиск дома по названию или месту" value="${esc(q)}"><button type="button" class="rclr" data-act="rqclear" aria-label="Очистить поиск" ${q ? '' : 'hidden'}>${ic('x-bold', 's')}</button></label>
-    <div class="rchips ${q.trim() ? 'off' : ''}">
-      ${CAT_KEYS.map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q.trim() && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : ''}${CATS[k].short}</button>`).join('')}
+    <div class="fseg rctry" role="group" aria-label="Страна" style="--n:2;--i:${c === 'tr' ? 1 : 0}">
+      <button type="button" data-act="rctry" data-k="cr" aria-pressed="${c === 'cr'}">Крит <small>${nCr}</small></button>
+      <button type="button" data-act="rctry" data-k="tr" aria-pressed="${c === 'tr'}">Турция <small>${nTr}</small></button>
     </div>
-    ${people.length ? `<div class="ppl">${people.map(p => `<span>${ava(p.u, 's')}${esc(p.u.user_name)} <small>${p.n}</small></span>`).join('')}</div>` : ''}
+    <label class="rsearch">${ic('magnifying-glass')}<input id="rq" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${c === 'tr' ? 'Найти виллу в Турции' : 'Найти дом на Крите'}" aria-label="Поиск по названию или месту" value="${esc(q)}"><button type="button" class="rclr" data-act="rqclear" aria-label="Очистить поиск" ${q ? '' : 'hidden'}>${ic('x-bold', 's')}</button></label>
+    <div id="rmid">${resultsMid()}</div>
     <div id="rres">${resultsBody()}</div>
   </main>`;
+}
+/* switching the country: the pill slides over, then the chips, people and list below change and settle in */
+function switchRCountry(c) {
+  if (rCountry(S.rcat) === c) return;
+  setRcat(rcatFor(c));
+  const sg = $app.querySelector('.rctry'), mid = document.getElementById('rmid'), box = document.getElementById('rres');
+  if (!sg || !mid || !box) { renderResults(); return; }
+  sg.style.setProperty('--i', c === 'tr' ? 1 : 0);
+  sg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === c)));
+  const inp = document.getElementById('rq'); if (inp) inp.placeholder = c === 'tr' ? 'Найти виллу в Турции' : 'Найти дом на Крите';
+  mid.innerHTML = resultsMid(); box.innerHTML = resultsBody();
+  if (!RM() && mid.animate) mid.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.23,1,.32,1)' });
+  box.querySelectorAll('.rlist').forEach((l, i) => staggerRows(l, i ? 10 : 1));
 }
 function onSearch(v) {
   S.rq = v;
@@ -1043,7 +1083,8 @@ document.addEventListener('click', e => {
   const h = S.byId[S.sheet || (S.view === 'deck' ? S.cur : S.detail)];
   switch (a) {
     case 'cat': haptic(); if (el.dataset.replace) location.replace('#deck-' + el.dataset.k); else location.hash = 'deck-' + el.dataset.k; return;
-    case 'results': haptic(); if (el.dataset.k) { S.rcat = el.dataset.k; S.showRest = false; store.set('krit_rcat', S.rcat); } location.hash = 'results'; return;
+    case 'results': haptic(); if (el.dataset.k) setRcat(el.dataset.k); else if (el.dataset.ctry) setRcat(rcatFor(el.dataset.ctry)); location.hash = 'results'; return;
+    case 'rctry': haptic(); switchRCountry(el.dataset.k); return;
     case 'home': haptic(); if (history.length > 1) history.back(); else location.replace('#'); return;
     case 'replay': startDeck(S.cat, true); window.scrollTo(0, 0); renderDeck(true); return;
     case 'vote': cast(+el.dataset.v); return;
@@ -1079,7 +1120,7 @@ document.addEventListener('click', e => {
     case 'f-reset-all': S.trf = Object.assign({}, TRF0, { sort: S.trf.sort }); store.set('krit_trf', S.trf); S.trAnim = { from: 0 }; haptic('hit'); renderTurkey(); return;
     case 'f-apply': haptic('ok'); applyFilters(); return;
     case 'trsort': if (S.trf.sort !== el.dataset.k) { haptic(); sortTurkey(el.dataset.k); } return;
-    case 'rcat': S.rcat = el.dataset.k; S.rq = ''; S.showRest = false; store.set('krit_rcat', S.rcat); haptic(); renderResults(); return;
+    case 'rcat': setRcat(el.dataset.k); S.rq = ''; haptic(); renderResults(); staggerRows($app.querySelector('#rres .rlist'), 0); return;
     case 'rest': S.showRest = true; { const box = document.getElementById('rres'); if (box) box.innerHTML = resultsBody(); else renderResults(); } return;
     case 'rqclear': { onSearch(''); const inp = document.getElementById('rq'); if (inp) { inp.value = ''; inp.focus(); } haptic(); } return;
   }

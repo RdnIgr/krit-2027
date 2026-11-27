@@ -473,15 +473,21 @@ main > .back-l{margin-top:14px}
 @media (prefers-reduced-motion:no-preference){
   /* window: rises on an iOS-like drawer curve, sections settle in one after another */
   .fsheet{animation:fsUp .46s cubic-bezier(.32,.72,0,1)}
-  .fsheet.enter .fgrp{animation:fgIn .46s cubic-bezier(.23,1,.32,1) both;animation-delay:calc(70ms + var(--k,0) * 45ms)}
-  .fsheet.enter .fs-foot .btn{animation:fgIn .46s .16s cubic-bezier(.23,1,.32,1) both}
+  .fsheet.enter .fgrp{animation:fgIn .46s cubic-bezier(.23,1,.32,1) backwards;animation-delay:calc(70ms + var(--k,0) * 45ms)}
+  .fsheet.enter .fs-foot .btn{animation:fgIn .46s .16s cubic-bezier(.23,1,.32,1) backwards}
   .fseg::before{transition:transform .34s cubic-bezier(.23,1,.32,1)}
   .fchip .ck{transition:width .26s cubic-bezier(.23,1,.32,1),margin .26s cubic-bezier(.23,1,.32,1),opacity .18s ease,transform .34s cubic-bezier(.34,1.56,.64,1)}
   .ftog .sw::after{transition:transform .34s cubic-bezier(.34,1.36,.64,1),width .2s cubic-bezier(.23,1,.32,1)}
   .fsheet.drag{transition:border-radius .2s ease,box-shadow .2s ease}
   /* Turkey list: rows fade up after filters or sorting change */
-  .trk.rin{animation:rowIn .42s cubic-bezier(.23,1,.32,1) both;animation-delay:calc(var(--d,0) * 35ms)}
+  .rin{animation:rowIn .42s cubic-bezier(.23,1,.32,1) backwards;animation-delay:calc(var(--d,0) * 35ms)}
 }
 @keyframes fsUp{from{transform:translateY(100%)}to{transform:none}}
 @keyframes fgIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @keyframes rowIn{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+/* results: country switch on top */
+.rctry{margin-top:16px}
+.rctry button{min-height:48px;font-size:16px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.rctry button small{font-size:13px;font-weight:700;color:var(--muted);transition:color .2s ease}
+.rctry button[aria-pressed="true"] small{color:var(--blue)}
+.rchips button[data-k="tr"] .i{color:inherit}
