@@ -491,3 +491,4 @@ main > .back-l{margin-top:14px}
 .rctry button small{font-size:13px;font-weight:700;color:var(--muted);transition:color .2s ease}
 .rctry button[aria-pressed="true"] small{color:var(--blue)}
 .rchips button[data-k="tr"] .i{color:inherit}
+.mini.ico.on{background:var(--blue);color:#fefefe;box-shadow:none}

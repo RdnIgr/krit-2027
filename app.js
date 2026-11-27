@@ -79,7 +79,16 @@ function rcatFor(c) {
   return cur && R_KEYS[c].includes(cur) ? cur : R_KEYS[c][c === 'tr' ? 0 : 1];
 }
 /* Turkey filters: what the filter window can choose, and the defaults (nothing chosen = no limit) */
-const TRF0 = { reg: [], walk: 0, beach: [], white: false, pool: 'any', grill: 'any', jac: false, cl: 0, price: 0, sort: 'cl' };
+const TRF0 = { reg: [], walk: 0, beach: [], white: false, pool: 'any', grill: 'any', jac: false, cl: [], price: 0, sort: 'cl' };
+/* Claude score is picked exactly: «8» means only villas with 8; several can be picked */
+const TR_CL = [['9', '9'], ['8', '8'], ['7', '7'], ['6', '6'], ['5', '5'], ['low', '4 и ниже']];
+const clKey = s => (s <= 4 ? 'low' : String(s));
+function normTrf(f) {
+  const o = JSON.parse(JSON.stringify(Object.assign({}, TRF0, f || {})));
+  if (!Array.isArray(o.cl)) o.cl = o.cl > 0 ? [clKey(o.cl)] : [];
+  ['reg', 'beach'].forEach(k => { if (!Array.isArray(o[k])) o[k] = []; });
+  return o;
+}
 const TR_SEAS = [['Средиземное море', 'med'], ['Эгейское море', 'aeg']];
 const TR_BEACH = [['sand', 'Песок'], ['mix', 'Песок и галька'], ['pebble', 'Галька']];
 const TR_SORT = [['cl', 'Оценка Claude'], ['price', 'Дешевле'], ['walk', 'Ближе к морю'], ['water', 'Вода теплее']];
@@ -92,7 +101,7 @@ function trMatch(h, f) {
   if (f.pool === 'own' && h.am.pool !== 'own') return false;
   if (f.grill === 'coal' && h.am.grill !== 'coal') return false;
   if (f.jac && h.am.jac === 'no') return false;
-  if (f.cl && !(h.cl && h.cl.s >= f.cl)) return false;
+  if (f.cl.length && !f.cl.includes(clKey(h.cl ? h.cl.s : 0))) return false;
   if (f.price && h.price > f.price) return false;
   return true;
 }
@@ -105,7 +114,7 @@ function trSort(list, how) {
   }[how] || (() => 0);
   return list.slice().sort((a, b) => by(a, b) || a.id - b.id);
 }
-const trActive = f => (f.reg.length ? 1 : 0) + (f.walk ? 1 : 0) + (f.beach.length ? 1 : 0) + (f.white ? 1 : 0) + (f.pool !== 'any' ? 1 : 0) + (f.grill !== 'any' ? 1 : 0) + (f.jac ? 1 : 0) + (f.cl ? 1 : 0) + (f.price ? 1 : 0);
+const trActive = f => (f.reg.length ? 1 : 0) + (f.walk ? 1 : 0) + (f.beach.length ? 1 : 0) + (f.white ? 1 : 0) + (f.pool !== 'any' ? 1 : 0) + (f.grill !== 'any' ? 1 : 0) + (f.jac ? 1 : 0) + (f.cl.length ? 1 : 0) + (f.price ? 1 : 0);
 /* white sand counts as close when it is a drive of 45 minutes or less, without a ferry */
 const WHITE_MAX = 45;
 const whiteNear = h => !!(h.white && !h.white.port && h.white.t != null && h.white.t <= WHITE_MAX);
@@ -125,7 +134,7 @@ const EXTRA = {
 /* ---------- state ---------- */
 const S = { houses: [], byId: {}, votes: [], sig: '', view: 'home', cat: 'near', rcat: store.get('krit_rcat', 'near'), rq: '',
   queue: [], cur: null, hist: [], replay: false, detail: null, photoIdx: 0, showRest: false, full: {}, sheet: null,
-  trf: Object.assign({}, TRF0, store.get('krit_trf', {})), fdraft: null, trSeen: false };
+  trf: normTrf(store.get('krit_trf', {})), fdraft: null, trSeen: false };
 
 // photo entry: [cat, url, thumb, label, mid]; local paths, Airbnb and Booking urls are handled differently
 function psrc(e, size) {
@@ -423,18 +432,6 @@ function trScoreSec(h) {
   if (h.host) rows.push(`<div class="li"><span class="ic">${ic('chat-circle')}</span><div class="t">Хозяин пишет<small>${esc(h.host)}</small></div></div>`);
   return rows.length ? `<section class="sec"><h2>Ремонт и оценки</h2><div class="list">${rows.join('')}</div></section>` : '';
 }
-function trItem(h) {
-  const t = tally(h.id), mv = myVote(h.id);
-  return `<button type="button" class="trk" data-act="open" data-id="${h.id}">
-    <span class="th">${img(heroOf(h), 't')}${h.cl ? `<span class="clb ${clCls(h.cl.s)}">${ic('sparkle-fill', 's')}${h.cl.s}</span>` : ''}</span>
-    <span class="b">
-      <b>${esc(h.name)}</b>
-      <small>${esc(h.city)} · ${tm(h.walk.min)} до пляжа · ${esc(h.beachType)}</small>
-      <span class="pr">${nf(h.price)} € <small>${h.am.pool === 'own' ? 'свой бассейн' : h.am.pool === 'shared' ? 'общий бассейн' : 'бассейн'} · вода ${fmtW(h.water)} °C${h.white ? ' · белый песок' : ''}</small></span>
-      ${t.all || mv ? `<span class="cnt">${mv ? `<span class="tag ${VOTE[mv.vote].k}">${ic(VOTE[mv.vote].icon, 's')}ты</span>` : ''}${t.all ? `<span class="yes">${ic('heart-fill', 's')}${t.yes}</span><span class="mb">${ic('question-bold', 's')}${t.mb}</span><span class="no">${ic('x-bold', 's')}${t.no}</span>` : ''}</span>` : ''}
-    </span>
-  </button>`;
-}
 function fSummary(f) {
   const out = [];
   if (f.reg.length) out.push(f.reg.length <= 2 ? f.reg.join(', ') : `${f.reg.length} ${plural(f.reg.length, 'регион', 'региона', 'регионов')}`);
@@ -444,7 +441,7 @@ function fSummary(f) {
   if (f.pool === 'own') out.push('свой бассейн');
   if (f.grill === 'coal') out.push('гриль на углях');
   if (f.jac) out.push('джакузи');
-  if (f.cl) out.push(`оценка Claude ${f.cl}+`);
+  if (f.cl.length) out.push(`оценка Claude ${f.cl.map(k => (k === 'low' ? '4 и ниже' : k)).join(', ')}`);
   if (f.price) out.push(`до ${f.price / 1000} тыс. €`);
   return out;
 }
@@ -472,46 +469,9 @@ function staggerRows(box, lead) {
   if (!box || RM()) return;
   [...box.children].slice(0, 10).forEach((c, i) => { c.style.setProperty('--d', i + (lead || 0)); c.classList.add('rin'); });
 }
-function renderTurkey() {
-  const all = S.houses.filter(isTr);
-  const list = trSort(housesIn('tr'), S.trf.sort);
-  const left = me ? list.filter(h => !myVote(h.id)).length : list.length;
-  const sum = fSummary(S.trf), act = trActive(S.trf);
-  const anim = S.trAnim; S.trAnim = null;
-  $app.innerHTML = `<main class="pad">
-    <div class="home-top">
-      <button type="button" class="back-l" data-act="home">${ic('caret-left-bold', 's')}Страны</button>
-      <button type="button" class="pill-btn" data-act="results" data-k="trall">${ic('trophy')}Итоги</button>
-    </div>
-    <header class="home-hd"><p>Турция, 12-25 июня 2027, ${C.people} человек</p><h1>Виллы в Турции</h1></header>
-    <button type="button" class="fbar ${act ? 'act' : ''}" data-act="f-open">
-      <span class="ic">${ic(act ? 'funnel-fill' : 'funnel', 'l')}</span>
-      <span class="b"><b>Фильтры${act ? ` <i>${act}</i>` : ''}</b><small>${sum.length ? esc(sum.join(' · ')) : 'Регион, пляж, бассейн, гриль, оценка'}</small></span>
-      <span class="n"><span class="nv">${list.length}</span><small>из ${all.length}</small></span>
-    </button>
-    <div class="sortrow">${TR_SORT.map(([k, l]) => `<button type="button" data-act="trsort" data-k="${k}" aria-pressed="${S.trf.sort === k}">${esc(l)}</button>`).join('')}</div>
-    ${list.length ? `<button type="button" class="btn pri full go" data-act="cat" data-k="tr" ${left ? '' : 'disabled'}>${ic('hand-swipe-right')}${left ? `Оценивать подряд · ${left}` : 'Все виллы по фильтру оценены'}</button>` : ''}
-    <div class="rlist" id="trlist">${list.length ? list.map(trItem).join('') : `<div class="empty">По этим фильтрам вилл нет.<br><button type="button" class="btn" style="margin-top:12px" data-act="f-reset-all">Сбросить фильтры</button></div>`}</div>
-  </main>`;
-  if (anim) {
-    const nv = $app.querySelector('.fbar .nv');
-    if (nv && anim.from != null) tween(nv, anim.from, list.length, v => { nv.textContent = v; }, 520);
-    if (anim.from != null && !RM()) { const fb = $app.querySelector('.fbar'); fb && fb.animate && fb.animate([{ transform: 'scale(.97)' }, { transform: 'scale(1.015)', offset: .55 }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.23,1,.32,1)' }); }
-    staggerRows(document.getElementById('trlist'), anim.lead);
-  }
-}
-/* sorting re-orders the list in place: the pill slides its colour over, the rows fade in again */
-function sortTurkey(k) {
-  S.trf.sort = k; store.set('krit_trf', S.trf);
-  $app.querySelectorAll('.sortrow button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
-  const box = document.getElementById('trlist');
-  const list = trSort(housesIn('tr'), k);
-  if (box && list.length) { box.innerHTML = list.map(trItem).join(''); staggerRows(box, 0); }
-}
 /* filter window: changes go to a draft, the list updates when you press «Показать».
    The window is built once when it opens; every tap after that changes only what changed, so it can animate. */
 const $fs = () => document.getElementById('fsheet');
-function fCount(f) { return S.houses.filter(h => isTr(h) && trMatch(h, f)).length; }
 function renderFilters() {
   const f = S.fdraft, all = S.houses.filter(isTr);
   const chip = (fld, v, label, n) => `<button type="button" class="fchip" data-act="f-set" data-f="${fld}" data-v="${esc(v)}" aria-pressed="false"><span class="ck">${ic('check-bold', 's')}</span><span>${esc(label)}</span>${n ? '<small class="fn"></small>' : ''}</button>`;
@@ -531,10 +491,10 @@ function renderFilters() {
       <button type="button" class="ftog" data-act="f-set" data-f="white" data-v="1" aria-pressed="false"><span class="sw"></span><span><b>Только белый песок</b><small>Ылыджа в Чешме, вилл: <span class="fn" id="fs-nwhite"></span></small></span></button>`,
     `<h3>${ic('swimming-pool')}Бассейн</h3>${seg('pool', [['any', 'Любой'], ['own', 'Только свой']])}`,
     `<h3>${ic('fire')}Гриль</h3>${seg('grill', [['any', 'Любой'], ['coal', 'На углях, как мангал']])}<p class="fhint">Гриль есть во всех виллах. «На углях» хозяин указал сам, у остальных тип не указан.</p>`,
-    `<h3>${ic('sparkle-fill')}Оценка Claude: ремонт и цена</h3>${seg('cl', [[0, 'Любая'], [5, '5+'], [6, '6+'], [7, '7+'], [8, '8+'], [9, '9']])}<p class="fhint">По фото: свежий светлый ремонт, просторные спальни и красивые ванные, с учётом цены.</p>`,
-    `<h3>${ic('wallet')}Цена за ${C.nights} ночей</h3>${seg('price', [[0, 'Любая'], [3000, 'до 3 тыс. €'], [4000, 'до 4 тыс. €'], [5000, 'до 5 тыс. €']])}`,
+    `<h3>${ic('sparkle-fill')}Оценка Claude: ремонт и цена</h3><div class="fchips">${TR_CL.map(([k, l]) => chip('cl', k, l, true)).join('')}</div><p class="fhint">Можно выбрать несколько. «8» значит только виллы с оценкой 8. По фото: свежий светлый ремонт, просторные спальни и красивые ванные, с учётом цены.</p>`,
+    `<h3>${ic('wallet')}Цена за ${C.nights} ночей, €</h3>${seg('price', [[0, 'Любая'], [3000, 'до 3 тыс.'], [4000, 'до 4 тыс.'], [5000, 'до 5 тыс.']])}`,
     `<h3>${ic('bathtub')}Ещё</h3><button type="button" class="ftog" data-act="f-set" data-f="jac" data-v="1" aria-pressed="false"><span class="sw"></span><span><b>Есть джакузи</b><small>в доме или во дворе</small></span></button>`,
-    `<h3>${ic('sort-descending')}Сортировка</h3>${seg('sort', TR_SORT)}`
+    `<h3>${ic('sort-descending')}В каком порядке показывать</h3>${seg('sort', TR_SORT)}`
   ].map((h, k) => sec(k, h)).join('');
   document.getElementById('fs-go')._v = null;
   syncFilters(false);
@@ -542,16 +502,17 @@ function renderFilters() {
 /* bring every control in line with the draft: pressed states, the sliding pill, counts and the button */
 function syncFilters(anim) {
   const f = S.fdraft, body = document.getElementById('fs-body'); if (!f || !body) return;
-  const all = S.houses.filter(isTr);
+  const all = S.houses.filter(isTr), open = all.filter(h => !myVote(h.id));
   const without = k => Object.assign({}, f, { [k]: TRF0[k] });
-  const pool = { reg: all.filter(h => trMatch(h, without('reg'))), beach: all.filter(h => trMatch(h, without('beach'))) };
+  const KEY = { reg: h => h.reg, beach: h => h.btype, cl: h => clKey(h.cl ? h.cl.s : 0) }, pools = {};
+  const poolOf = fld => pools[fld] || (pools[fld] = open.filter(h => trMatch(h, without(fld))));
   body.querySelectorAll('[data-act="f-set"]').forEach(b => {
     const fld = b.dataset.f, v = b.dataset.v;
     const on = Array.isArray(f[fld]) ? f[fld].includes(v) : (fld === 'white' || fld === 'jac') ? !!f[fld] : String(f[fld]) === v;
     if (b.getAttribute('aria-pressed') !== String(on)) b.setAttribute('aria-pressed', String(on));
     const nEl = b.classList.contains('fchip') && b.querySelector('.fn');
     if (nEl) {
-      const n = pool[fld].filter(h => (fld === 'reg' ? h.reg : h.btype) === v).length;
+      const n = poolOf(fld).filter(h => KEY[fld](h) === v).length;
       setNum(nEl, n, anim); b.classList.toggle('zero', !n && !on);
     }
   });
@@ -559,19 +520,21 @@ function syncFilters(anim) {
     const i = [...sg.children].findIndex(b => b.getAttribute('aria-pressed') === 'true');
     sg.style.setProperty('--i', Math.max(0, i));
   });
-  const nW = all.filter(h => h.white && trMatch(h, without('white'))).length, wEl = document.getElementById('fs-nwhite');
+  const nW = open.filter(h => h.white && trMatch(h, without('white'))).length, wEl = document.getElementById('fs-nwhite');
   if (wEl) { setNum(wEl, nW, anim); wEl.closest('.ftog').classList.toggle('zero', !nW && !f.white); }
-  const n = fCount(f), go = document.getElementById('fs-go'), was = go._v;
+  const n = open.filter(h => trMatch(h, f)).length, go = document.getElementById('fs-go'), was = go._v;
   go.disabled = !n;
-  if (!n) { cancelAnimationFrame(go._raf); go._v = 0; go.textContent = 'Ничего не найдено'; }
-  else tween(go, was ? was : (anim ? 0 : null), n, v => { go.innerHTML = `<span>Показать <span class="gn">${v}</span> ${plural(n, 'виллу', 'виллы', 'вилл')}</span>`; });
+  if (!n) { cancelAnimationFrame(go._raf); go._v = 0; go.textContent = all.some(h => trMatch(h, f)) ? 'Все виллы по фильтрам уже оценены' : 'Ничего не найдено'; }
+  else tween(go, was ? was : (anim ? 0 : null), n, v => { go.innerHTML = `<span>Оценить <span class="gn">${v}</span> ${plural(n, 'виллу', 'виллы', 'вилл')}</span>`; });
+  const sub = document.getElementById('fs-sub'), rated = all.length - open.length;
+  if (sub) sub.textContent = me && rated ? `Оценено ${rated} из ${all.length}` : 'Турция, 12-25 июня 2027';
   if (anim && !n !== !was && !RM() && go.animate) go.animate([{ opacity: .35, filter: 'blur(2px)' }, { opacity: 1, filter: 'none' }], { duration: 240, easing: 'ease-out' });
   const rs = document.getElementById('fs-reset'), act = !!trActive(f);
   rs.classList.toggle('on', act); rs.tabIndex = act ? 0 : -1; rs.setAttribute('aria-hidden', String(!act));
 }
 function openFilters() {
   clearTimeout(S.fsT); clearTimeout(S.fsE);
-  S.fdraft = JSON.parse(JSON.stringify(S.trf));
+  S.fdraft = normTrf(S.trf);
   document.getElementById('fs-x').innerHTML = ic('x-bold', 'l');
   renderFilters();
   const el = $fs(); el.style.cssText = ''; el.classList.remove('out'); el.classList.add('enter');
@@ -592,21 +555,21 @@ function closeFilters() {
 }
 function setFilter(fld, v) {
   const f = S.fdraft; if (!f) return;
-  if (fld === 'reg' || fld === 'beach') { const i = f[fld].indexOf(v); if (i >= 0) f[fld].splice(i, 1); else f[fld].push(v); }
+  if (Array.isArray(f[fld])) { const i = f[fld].indexOf(v); if (i >= 0) f[fld].splice(i, 1); else f[fld].push(v); }
   else if (fld === 'white' || fld === 'jac') f[fld] = !f[fld];
-  else if (fld === 'walk' || fld === 'cl' || fld === 'price') f[fld] = +v;
+  else if (fld === 'walk' || fld === 'price') f[fld] = +v;
   else f[fld] = v;
   syncFilters(true); haptic();
 }
 function resetDraft() {
   if (!S.fdraft) return;
-  S.fdraft = JSON.parse(JSON.stringify(Object.assign({}, TRF0, { sort: S.fdraft.sort })));
+  S.fdraft = normTrf({ sort: S.fdraft.sort });
   syncFilters(true); haptic('hit');
 }
 function applyFilters() {
-  const from = S.view === 'turkey' ? housesIn('tr').length : null;
-  S.trf = S.fdraft; store.set('krit_trf', S.trf); closeFilters();
-  if (S.view === 'turkey') { window.scrollTo(0, 0); S.trAnim = { from, lead: 3 }; renderTurkey(); }
+  S.trf = normTrf(S.fdraft); store.set('krit_trf', S.trf); closeFilters();
+  if (S.view === 'deck' && S.cat === 'tr') { startDeck('tr', false); window.scrollTo(0, 0); renderDeck(true); }
+  else location.hash = 'deck-tr';
 }
 /* pull the window down by its top bar to close it; a quick flick is enough */
 function bindFilterDrag() {
@@ -643,7 +606,7 @@ function voteBar(h, mode) {
     const total = housesIn(S.cat).length, done = myCount(S.cat);
     const pct = Math.round(done / total * 100), from = S.lastPct != null && S.lastCat === S.cat ? S.lastPct : pct;
     S.lastPct = pct; S.lastCat = S.cat;
-    meta = `<div class="vmeta">${S.hist.length ? `<button type="button" class="mini ico" data-act="undo" aria-label="Вернуться к прошлому дому">${ic('arrow-counter-clockwise-bold', 's')}</button>` : ''}<span class="cnt-t ${from !== pct ? 'bump' : ''}">${done} из ${total}</span><span class="sp"></span>${tools(h)}</div><div class="prog"><i id="progbar" style="width:${from}%" data-to="${pct}"></i></div>`;
+    meta = `<div class="vmeta">${S.cat === 'tr' ? `<button type="button" class="mini ico ${trActive(S.trf) ? 'on' : ''}" data-act="f-open" aria-label="Фильтры">${ic(trActive(S.trf) ? 'funnel-fill' : 'funnel', 's')}</button>` : ''}${S.hist.length ? `<button type="button" class="mini ico" data-act="undo" aria-label="Вернуться к прошлому дому">${ic('arrow-counter-clockwise-bold', 's')}</button>` : ''}<span class="cnt-t ${from !== pct ? 'bump' : ''}">${done} из ${total}</span><span class="sp"></span>${tools(h)}</div><div class="prog"><i id="progbar" style="width:${from}%" data-to="${pct}"></i></div>`;
   } else {
     meta = `<div class="vmeta"><span class="cnt-t">${mv ? 'Твоя оценка: ' + VOTE[mv.vote].label.toLowerCase() : 'Ещё не оценён'}</span><span class="sp"></span>${tools(h)}</div>`;
   }
@@ -773,6 +736,19 @@ function renderDetail() {
 function renderDone() {
   const total = housesIn(S.cat).length;
   const trc = S.cat === 'tr';
+  if (trc) {
+    const left = leftIn('trall');
+    $app.innerHTML = `<main class="pad done">
+    <span class="ic">${ic(total ? 'check-circle-fill' : 'funnel', 'xl')}</span>
+    <h1>${total ? `Все ${total} ${plural(total, 'вилла', 'виллы', 'вилл')} по твоим фильтрам оценены` : 'По твоим фильтрам вилл нет'}</h1>
+    <p>${left ? `В Турции ещё не оценено ${left} ${plural(left, 'вилла', 'виллы', 'вилл')}. Поменяй фильтры, чтобы оценить другие. Оценённые виллы видны в итогах.` : 'Ты оценил все виллы в Турции. Посмотри, что выбрали остальные.'}</p>
+    <div class="btns">
+      ${left ? `<button type="button" class="btn pri" data-act="f-open">${ic('funnel')}Поменять фильтры</button>` : ''}
+      <button type="button" class="btn ${left ? '' : 'pri'}" data-act="results" data-k="trall">${ic('trophy')}Итоги по Турции</button>
+    </div>
+  </main>`;
+    return;
+  }
   const left = leftIn(trc ? 'trall' : 'all');
   $app.innerHTML = `<main class="pad done">
     <span class="ic">${ic('check-circle-fill', 'xl')}</span>
@@ -1019,6 +995,7 @@ document.addEventListener('keydown', e => { if (e.target && e.target.id === 'rq'
 function route() {
   if (!$viewer.hidden) closeViewer();
   if (!$sheet.hidden) { $sheet.hidden = true; S.sheet = null; document.body.style.overflow = ''; wantFull(false); }
+  const fsh = $fs(); if (fsh && !fsh.hidden && !fsh.classList.contains('out')) closeFilters();
   const hsh = location.hash;
   let m;
   if ((m = hsh.match(/^#deck-([a-z0-9]+)$/)) && CATS[m[1]]) {
@@ -1027,16 +1004,8 @@ function route() {
   } else if (hsh === '#results') { const back = S.view === 'detail' && S.ret; S.view = 'results'; window.scrollTo(0, 0); renderResults(); if (back) restoreRow(S.ret); S.ret = null; }
   else if ((m = hsh.match(/^#h-(\d+)$/)) && S.byId[+m[1]]) { S.view = 'detail'; S.detail = +m[1]; S.photoIdx = 0; window.scrollTo(0, 0); renderDetail(); }
   else if (hsh === '#crete') { S.view = 'crete'; window.scrollTo(0, 0); renderCrete(); }
-  else if (hsh === '#turkey') {
-    const back = S.view === 'detail' && S.retTr != null;
-    S.view = 'turkey'; renderTurkey();
-    if (back) { const row = $app.querySelector(`.trk[data-id="${S.retTr.id}"]`); window.scrollTo(0, row ? row.getBoundingClientRect().top + window.scrollY - S.retTr.top : S.retTr.y); }
-    else window.scrollTo(0, 0);
-    S.retTr = null;
-    if (S.trAuto) { S.trAuto = false; openFilters(); }
-  }
+  else if (hsh === '#turkey') { history.replaceState(null, '', location.pathname + location.search); S.view = 'home'; window.scrollTo(0, 0); renderHome(); openFilters(); }
   else { S.view = 'home'; window.scrollTo(0, 0); renderHome(); }
-  if (S.view !== 'turkey' && $fs() && !$fs().hidden) { $fs().hidden = true; S.fdraft = null; document.body.style.overflow = ''; }
   syncBack();
 }
 /* opening a house from the list and coming back: the photo grows into the page and shrinks back */
@@ -1102,7 +1071,6 @@ document.addEventListener('click', e => {
     case 'listing': if (h) openLink(h.link); return;
     case 'open': {
       const id = +el.dataset.id;
-      if (S.view === 'turkey') S.retTr = { id, top: el.getBoundingClientRect().top, y: window.scrollY };
       if (S.view !== 'results') { haptic(); location.hash = 'h-' + id; return; }
       S.ret = { id, top: el.getBoundingClientRect().top, y: window.scrollY };
       el.classList.add('opening'); haptic();
@@ -1112,14 +1080,12 @@ document.addEventListener('click', e => {
       } else { S.zoomIn = true; setTimeout(() => { location.hash = 'h-' + id; }, 140); }
       return;
     }
-    case 'country': haptic(); if (el.dataset.k === 'turkey') S.trAuto = true; location.hash = el.dataset.k; return;
+    case 'country': haptic(); if (el.dataset.k === 'turkey') openFilters(); else location.hash = el.dataset.k; return;
     case 'f-open': openFilters(); return;
     case 'f-close': closeFilters(); return;
     case 'f-set': setFilter(el.dataset.f, el.dataset.v); return;
     case 'f-reset': resetDraft(); return;
-    case 'f-reset-all': S.trf = Object.assign({}, TRF0, { sort: S.trf.sort }); store.set('krit_trf', S.trf); S.trAnim = { from: 0 }; haptic('hit'); renderTurkey(); return;
     case 'f-apply': haptic('ok'); applyFilters(); return;
-    case 'trsort': if (S.trf.sort !== el.dataset.k) { haptic(); sortTurkey(el.dataset.k); } return;
     case 'rcat': setRcat(el.dataset.k); S.rq = ''; haptic(); renderResults(); staggerRows($app.querySelector('#rres .rlist'), 0); return;
     case 'rest': S.showRest = true; { const box = document.getElementById('rres'); if (box) box.innerHTML = resultsBody(); else renderResults(); } return;
     case 'rqclear': { onSearch(''); const inp = document.getElementById('rq'); if (inp) { inp.value = ''; inp.focus(); } haptic(); } return;
@@ -1150,7 +1116,6 @@ async function refresh() {
       if (box && document.activeElement && document.activeElement.id === 'rq') box.innerHTML = resultsBody(); else renderResults();
       window.scrollTo(0, y);
     }
-    else if (S.view === 'turkey') { const y = window.scrollY; renderTurkey(); window.scrollTo(0, y); }
     else if (S.view === 'crete') renderCrete();
     else if (S.view === 'home') renderHome();
   } catch (e) { /* offline: keep old data */ }
