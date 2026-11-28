@@ -60,13 +60,17 @@ const CATS = {
   p3: { title: 'От 5 000 €', short: '5+ тыс. €', big: '5+' },
   all: { title: 'Все дома', short: 'Все дома', sub: 'Без отбора' },
   need: { title: 'Нужен твой голос', short: 'Дооценить', sub: 'Другим понравилось, ждут твоей оценки' },
+  misha: { title: 'От Миши', short: 'От Миши', sub: 'Дома, которые предложил Миша' },
   tr: { title: 'Турция по фильтрам', short: 'Турция', sub: 'Виллы по твоим фильтрам' },
   trall: { title: 'Турция', short: 'Турция', sub: 'Все виллы в Турции' }
 };
 const CAT_KEYS = ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'trall'];
 const isTr = h => h.country === 'tr';
+/* houses Misha sent: letter М in a circle, olive like his avatar */
+const byMisha = h => h.by === 'misha';
+const mBadge = (h, cls = '') => byMisha(h) ? `<span class="mby ${cls}" aria-label="Предложил Миша">М</span>` : '';
 /* results are kept apart by country: Crete has its own categories, Turkey has all villas or the villas left by your filters */
-const R_KEYS = { cr: ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'need'], tr: ['trall', 'tr'] };
+const R_KEYS = { cr: ['top', 'near', 'far', 'p1', 'p2', 'p3', 'all', 'misha', 'need'], tr: ['trall', 'tr'] };
 const R_LABEL = { trall: 'Все виллы', tr: 'По моим фильтрам' };
 const rCountry = k => (k === 'tr' || k === 'trall' ? 'tr' : 'cr');
 function setRcat(k) {
@@ -180,6 +184,7 @@ const inCat = (h, c) => {
   if (c === 'tr' || c === 'trall') return false;
   if (c === 'all') return true;
   if (c === 'need') return interest(h.id, me && me.id) >= NEED_MIN;
+  if (c === 'misha') return byMisha(h);
   if (c === 'top') return !!h.top;
   if (!h.pick) return false;
   if (c === 'near') return !!h.near;
@@ -426,6 +431,14 @@ function renderCrete() {
       ${ic('caret-right')}
     </button>`;
   })();
+  const mishaT = (() => {
+    const x = st('misha'); if (!x.n) return '';
+    return `<button type="button" class="tl row misha" data-act="cat" data-k="misha">
+      <span class="tl-ic"><span class="mby l">М</span></span>
+      <span class="tl-b"><b>${CATS.misha.title}</b><small class="${x.done ? 'ok' : ''}">${CATS.misha.sub}, ${x.txt}</small>${x.bar}</span>
+      ${ic('caret-right')}
+    </button>`;
+  })();
   $app.innerHTML = `<main class="pad">
     <div class="home-top">
       <div class="who">${me ? ava(me) + `<b>Привет, ${esc(me.name.split(' ')[0])}</b>` : ''}</div>
@@ -435,6 +448,7 @@ function renderCrete() {
     <header class="home-hd"><p>Крит, 12-25 июня 2027, ${C.people} человек</p><h1>Выбери категорию</h1></header>
     <div class="tiles">
       ${needT}
+      ${mishaT}
       ${photo('top', 'wide')}
       ${photo('near', '')}${photo('far', '')}
       <p class="tl-lbl">${ic('wallet', 's')}По цене за ${C.nights} ночей на всех</p>
@@ -675,12 +689,14 @@ function houseHtml(h, mode) {
       <div class="ph-track" id="phtrack">${slidesHtml(h, photos)}</div>
       <span class="ph-count" id="phcount">1 из ${photos.length}</span>
       ${whiteNear(h) ? `<span class="ph-white"><span class="em">${ic('sun-fill', 's')}</span><span><b>Белый песок</b><small>${esc(h.white.n)}, ${tm(h.white.t)} ${h.white.walk ? 'пешком' : 'на машине'}</small></span></span>` : ''}
+      ${byMisha(h) ? `<span class="ph-by">${mBadge(h)}От Миши</span>` : ''}
       ${tr && h.cl ? `<span class="ph-cl s${h.cl.s >= 8 ? 'hi' : h.cl.s >= 6 ? 'mid' : 'lo'}">${ic('sparkle-fill', 's')}<b>${h.cl.s}</b><small>/10</small></span>` : ''}
     </div>
 
     <div class="ttl">
       <h1>${esc(h.name)}</h1>
       <div class="loc">${ic('map-pin', 's')}${esc(h.city)}</div>
+      ${byMisha(h) ? `<div class="by">${mBadge(h, 's')}Этот дом предложил Миша</div>` : ''}
       ${rt ? `<div class="rate">${ic('star-fill', 's')}<span><b>${esc(rt.v)}</b> из ${rt.of}, ${rt.n} ${plural(rt.n, 'отзыв', 'отзыва', 'отзывов')} на ${esc(h.plat)}</span></div>` : `<div class="rate">${ic('star', 's')}<span>Отзывов на ${esc(h.plat)} пока нет</span></div>`}
     </div>
 
@@ -812,7 +828,7 @@ function resultItem({ h, t, wait }, i) {
   const crown = !wait && i === 0 && t.score > 0;
   return `<button type="button" class="rk" data-act="open" data-id="${h.id}">
       <span class="n ${!wait && i < 3 && t.score > 0 ? 'top' : ''}">${crown ? ic('crown-fill', 'l') : i + 1}</span>
-      <span class="th">${img(heroOf(h), 't')}</span>
+      <span class="th">${img(heroOf(h), 't')}${mBadge(h, 's')}</span>
       <span class="b"><b>${esc(h.name)}</b><small>${isTr(h) ? esc(h.city) + ', ' : ''}${h.walk.cross ? 'пляж через дорогу' : tm(h.walk.min) + (h.walk.to === 'sea' ? ' до моря' : ' до пляжа')}, ${nf(h.price)}\u00a0€</small>
         ${t.all ? `<span class="cnt"><span class="yes">${ic('heart-fill', 's')}${t.yes}</span><span class="mb">${ic('question-bold', 's')}${t.mb}</span><span class="no">${ic('x-bold', 's')}${t.no}</span><span class="sc">${t.score > 0 ? '+' : ''}${t.score}</span></span>` : `<small>Голосов пока нет</small>`}
       </span>
@@ -858,7 +874,7 @@ function resultsMid() {
   S.votes.forEach(v => { const h = S.byId[v.house_id]; if (!h || isTr(h) !== tr) return; (ppl[v.user_id] = ppl[v.user_id] || { u: v, n: 0 }).n++; });
   const people = Object.values(ppl).sort((a, b) => b.n - a.n);
   return `<div class="rchips ${q ? 'off' : ''}">
-      ${R_KEYS[c].map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : k === 'tr' ? ic('funnel', 's') : k === 'need' ? ic('users', 's') : ''}${R_LABEL[k] || CATS[k].short}</button>`).join('')}
+      ${R_KEYS[c].map(k => `<button type="button" data-act="rcat" data-k="${k}" aria-pressed="${!q && S.rcat === k}">${k === 'top' ? ic('crown-fill', 's') : k === 'tr' ? ic('funnel', 's') : k === 'need' ? ic('users', 's') : k === 'misha' ? '<span class="mby s">М</span>' : ''}${R_LABEL[k] || CATS[k].short}</button>`).join('')}
     </div>
     ${people.length ? `<div class="ppl">${people.map(p => `<span>${ava(p.u, 's')}${esc(p.u.user_name)} <small>${p.n}</small></span>`).join('')}</div>` : `<p class="rnote">${tr ? 'За виллы в Турции' : 'За дома на Крите'} пока никто не голосовал.</p>`}`;
 }
@@ -1175,7 +1191,7 @@ async function boot() {
   paintChrome(); watchBar(); bindFilterDrag();
   try {
     const [cr, trl] = await Promise.all([
-      fetch('data/houses.json?v=8').then(r => r.json()),
+      fetch('data/houses.json?v=9').then(r => r.json()),
       fetch('data/turkey.json?v=1').then(r => r.ok ? r.json() : []).catch(() => [])
     ]);
     trl.forEach(h => { h.country = 'tr'; });
